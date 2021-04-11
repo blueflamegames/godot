@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -38,7 +38,6 @@
 #include "scene/gui/text_edit.h"
 
 class PluginConfigDialog : public ConfirmationDialog {
-
 	GDCLASS(PluginConfigDialog, ConfirmationDialog);
 
 	LineEdit *name_edit;
@@ -57,12 +56,14 @@ class PluginConfigDialog : public ConfirmationDialog {
 	void _on_cancelled();
 	void _on_required_text_changed(const String &p_text);
 
+	static String _to_absolute_plugin_path(const String &p_plugin_name);
+
 protected:
 	virtual void _notification(int p_what);
 	static void _bind_methods();
 
 public:
-	void config(const String &p_plugin_dir_name);
+	void config(const String &p_config_path);
 
 	PluginConfigDialog();
 	~PluginConfigDialog();

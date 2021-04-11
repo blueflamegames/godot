@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2019 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2019 Godot Engine contributors (cf. AUTHORS.md)    */
+/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,12 +31,12 @@
 #ifndef AUDIO_STREAM_PLAYER_H
 #define AUDIO_STREAM_PLAYER_H
 
+#include "core/templates/safe_refcount.h"
 #include "scene/main/node.h"
 #include "servers/audio/audio_stream.h"
 
 class AudioStreamPlayer : public Node {
-
-	GDCLASS(AudioStreamPlayer, Node)
+	GDCLASS(AudioStreamPlayer, Node);
 
 public:
 	enum MixTarget {
@@ -49,20 +49,23 @@ private:
 	Ref<AudioStreamPlayback> stream_playback;
 	Ref<AudioStream> stream;
 	Vector<AudioFrame> mix_buffer;
+	Vector<AudioFrame> fadeout_buffer;
+	bool use_fadeout = false;
 
-	volatile float setseek;
-	volatile bool active;
+	SafeNumeric<float> setseek{ -1.0 };
+	SafeFlag active;
+	SafeFlag setstop;
+	SafeFlag stop_has_priority;
 
-	float mix_volume_db;
-	float pitch_scale;
-	float volume_db;
-	bool autoplay;
-	bool stream_paused;
-	bool stream_fade;
-	bool stream_stop;
+	float mix_volume_db = 0.0;
+	float pitch_scale = 1.0;
+	float volume_db = 0.0;
+	bool autoplay = false;
+	bool stream_paused = false;
+	bool stream_paused_fade = false;
 	StringName bus;
 
-	MixTarget mix_target;
+	MixTarget mix_target = MIX_TARGET_STEREO;
 
 	void _mix_internal(bool p_fadeout);
 	void _mix_audio();
@@ -72,9 +75,10 @@ private:
 	bool _is_active() const;
 
 	void _bus_layout_changed();
+	void _mix_to_bus(const AudioFrame *p_frames, int p_amount);
 
 protected:
-	void _validate_property(PropertyInfo &property) const;
+	void _validate_property(PropertyInfo &property) const override;
 	void _notification(int p_what);
 	static void _bind_methods();
 
@@ -105,6 +109,8 @@ public:
 
 	void set_stream_paused(bool p_pause);
 	bool get_stream_paused() const;
+
+	Ref<AudioStreamPlayback> get_stream_playback();
 
 	AudioStreamPlayer();
 	~AudioStreamPlayer();
