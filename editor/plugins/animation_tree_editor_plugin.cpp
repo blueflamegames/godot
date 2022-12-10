@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -39,6 +39,8 @@
 #include "core/io/resource_loader.h"
 #include "core/math/delaunay_2d.h"
 #include "core/os/keyboard.h"
+#include "editor/editor_file_dialog.h"
+#include "editor/editor_node.h"
 #include "editor/editor_scale.h"
 #include "scene/animation/animation_blend_tree.h"
 #include "scene/animation/animation_player.h"
@@ -48,18 +50,33 @@
 #include "scene/scene_string_names.h"
 
 void AnimationTreeEditor::edit(AnimationTree *p_tree) {
+	if (p_tree && !p_tree->is_connected("animation_player_changed", callable_mp(this, &AnimationTreeEditor::_animation_list_changed))) {
+		p_tree->connect("animation_player_changed", callable_mp(this, &AnimationTreeEditor::_animation_list_changed), CONNECT_DEFERRED);
+	}
+
 	if (tree == p_tree) {
 		return;
+	}
+
+	if (tree && tree->is_connected("animation_player_changed", callable_mp(this, &AnimationTreeEditor::_animation_list_changed))) {
+		tree->disconnect("animation_player_changed", callable_mp(this, &AnimationTreeEditor::_animation_list_changed));
 	}
 
 	tree = p_tree;
 
 	Vector<String> path;
-	if (tree->has_meta("_tree_edit_path")) {
+	if (tree && tree->has_meta("_tree_edit_path")) {
 		path = tree->get_meta("_tree_edit_path");
-		edit_path(path);
 	} else {
 		current_root = ObjectID();
+	}
+
+	edit_path(path);
+}
+
+void AnimationTreeEditor::_node_removed(Node *p_node) {
+	if (p_node == tree) {
+		tree = nullptr;
 	}
 }
 
@@ -70,21 +87,28 @@ void AnimationTreeEditor::_path_button_pressed(int p_path) {
 	}
 }
 
+void AnimationTreeEditor::_animation_list_changed() {
+	AnimationNodeBlendTreeEditor *bte = AnimationNodeBlendTreeEditor::get_singleton();
+	if (bte) {
+		bte->update_graph();
+	}
+}
+
 void AnimationTreeEditor::_update_path() {
 	while (path_hb->get_child_count() > 1) {
 		memdelete(path_hb->get_child(1));
 	}
 
 	Ref<ButtonGroup> group;
-	group.instance();
+	group.instantiate();
 
 	Button *b = memnew(Button);
-	b->set_text("Root");
+	b->set_text(TTR("Root"));
 	b->set_toggle_mode(true);
 	b->set_button_group(group);
 	b->set_pressed(true);
 	b->set_focus_mode(FOCUS_NONE);
-	b->connect("pressed", callable_mp(this, &AnimationTreeEditor::_path_button_pressed), varray(-1));
+	b->connect("pressed", callable_mp(this, &AnimationTreeEditor::_path_button_pressed).bind(-1));
 	path_hb->add_child(b);
 	for (int i = 0; i < button_path.size(); i++) {
 		b = memnew(Button);
@@ -94,7 +118,7 @@ void AnimationTreeEditor::_update_path() {
 		path_hb->add_child(b);
 		b->set_pressed(true);
 		b->set_focus_mode(FOCUS_NONE);
-		b->connect("pressed", callable_mp(this, &AnimationTreeEditor::_path_button_pressed), varray(i));
+		b->connect("pressed", callable_mp(this, &AnimationTreeEditor::_path_button_pressed).bind(i));
 	}
 }
 
@@ -127,6 +151,11 @@ void AnimationTreeEditor::edit_path(const Vector<String> &p_path) {
 	} else {
 		current_root = ObjectID();
 		edited_path = button_path;
+
+		for (int i = 0; i < editors.size(); i++) {
+			editors[i]->edit(Ref<AnimationNode>());
+			editors[i]->hide();
+		}
 	}
 
 	_update_path();
@@ -143,19 +172,27 @@ void AnimationTreeEditor::enter_editor(const String &p_path) {
 }
 
 void AnimationTreeEditor::_notification(int p_what) {
-	if (p_what == NOTIFICATION_PROCESS) {
-		ObjectID root;
-		if (tree && tree->get_tree_root().is_valid()) {
-			root = tree->get_tree_root()->get_instance_id();
-		}
+	switch (p_what) {
+		case NOTIFICATION_ENTER_TREE: {
+			get_tree()->connect("node_removed", callable_mp(this, &AnimationTreeEditor::_node_removed));
+		} break;
+		case NOTIFICATION_PROCESS: {
+			ObjectID root;
+			if (tree && tree->get_tree_root().is_valid()) {
+				root = tree->get_tree_root()->get_instance_id();
+			}
 
-		if (root != current_root) {
-			edit_path(Vector<String>());
-		}
+			if (root != current_root) {
+				edit_path(Vector<String>());
+			}
 
-		if (button_path.size() != edited_path.size()) {
-			edit_path(edited_path);
-		}
+			if (button_path.size() != edited_path.size()) {
+				edit_path(edited_path);
+			}
+		} break;
+		case NOTIFICATION_EXIT_TREE: {
+			get_tree()->disconnect("node_removed", callable_mp(this, &AnimationTreeEditor::_node_removed));
+		} break;
 	}
 }
 
@@ -215,8 +252,8 @@ Vector<String> AnimationTreeEditor::get_animation_list() {
 	List<StringName> anims;
 	ap->get_animation_list(&anims);
 	Vector<String> ret;
-	for (List<StringName>::Element *E = anims.front(); E; E = E->next()) {
-		ret.push_back(E->get());
+	for (const StringName &E : anims) {
+		ret.push_back(E);
 	}
 
 	return ret;
@@ -226,8 +263,7 @@ AnimationTreeEditor::AnimationTreeEditor() {
 	AnimationNodeAnimation::get_editable_animation_list = get_animation_list;
 	path_edit = memnew(ScrollContainer);
 	add_child(path_edit);
-	path_edit->set_enable_h_scroll(true);
-	path_edit->set_enable_v_scroll(false);
+	path_edit->set_vertical_scroll_mode(ScrollContainer::SCROLL_MODE_DISABLED);
 	path_hb = memnew(HBoxContainer);
 	path_edit->add_child(path_hb);
 	path_hb->add_child(memnew(Label(TTR("Path:"))));
@@ -258,23 +294,22 @@ void AnimationTreeEditorPlugin::make_visible(bool p_visible) {
 		//editor->hide_animation_player_editors();
 		//editor->animation_panel_make_visible(true);
 		button->show();
-		editor->make_bottom_panel_item_visible(anim_tree_editor);
+		EditorNode::get_singleton()->make_bottom_panel_item_visible(anim_tree_editor);
 		anim_tree_editor->set_process(true);
 	} else {
 		if (anim_tree_editor->is_visible_in_tree()) {
-			editor->hide_bottom_panel();
+			EditorNode::get_singleton()->hide_bottom_panel();
 		}
 		button->hide();
 		anim_tree_editor->set_process(false);
 	}
 }
 
-AnimationTreeEditorPlugin::AnimationTreeEditorPlugin(EditorNode *p_node) {
-	editor = p_node;
+AnimationTreeEditorPlugin::AnimationTreeEditorPlugin() {
 	anim_tree_editor = memnew(AnimationTreeEditor);
 	anim_tree_editor->set_custom_minimum_size(Size2(0, 300) * EDSCALE);
 
-	button = editor->add_bottom_panel_item(TTR("AnimationTree"), anim_tree_editor);
+	button = EditorNode::get_singleton()->add_bottom_panel_item(TTR("AnimationTree"), anim_tree_editor);
 	button->hide();
 }
 

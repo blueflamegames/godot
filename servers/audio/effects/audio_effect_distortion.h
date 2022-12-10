@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -28,8 +28,8 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 
-#ifndef AUDIOEFFECTDISTORTION_H
-#define AUDIOEFFECTDISTORTION_H
+#ifndef AUDIO_EFFECT_DISTORTION_H
+#define AUDIO_EFFECT_DISTORTION_H
 
 #include "servers/audio/audio_effect.h"
 
@@ -68,7 +68,7 @@ protected:
 	static void _bind_methods();
 
 public:
-	Ref<AudioEffectInstance> instance() override;
+	Ref<AudioEffectInstance> instantiate() override;
 
 	void set_mode(Mode p_mode);
 	Mode get_mode() const;
@@ -90,4 +90,4 @@ public:
 
 VARIANT_ENUM_CAST(AudioEffectDistortion::Mode)
 
-#endif // AUDIOEFFECTDISTORTION_H
+#endif // AUDIO_EFFECT_DISTORTION_H

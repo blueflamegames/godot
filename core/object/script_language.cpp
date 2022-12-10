@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -34,6 +34,7 @@
 #include "core/core_string_names.h"
 #include "core/debugger/engine_debugger.h"
 #include "core/debugger/script_debugger.h"
+#include "core/variant/typed_array.h"
 
 #include <stdint.h>
 
@@ -46,10 +47,12 @@ bool ScriptServer::languages_finished = false;
 ScriptEditRequestFunction ScriptServer::edit_request_func = nullptr;
 
 void Script::_notification(int p_what) {
-	if (p_what == NOTIFICATION_POSTINITIALIZE) {
-		if (EngineDebugger::is_active()) {
-			EngineDebugger::get_script_debugger()->set_break_language(get_language());
-		}
+	switch (p_what) {
+		case NOTIFICATION_POSTINITIALIZE: {
+			if (EngineDebugger::is_active()) {
+				EngineDebugger::get_script_debugger()->set_break_language(get_language());
+			}
+		} break;
 	}
 }
 
@@ -59,48 +62,73 @@ Variant Script::_get_property_default_value(const StringName &p_property) {
 	return ret;
 }
 
-Array Script::_get_script_property_list() {
-	Array ret;
+TypedArray<Dictionary> Script::_get_script_property_list() {
+	TypedArray<Dictionary> ret;
 	List<PropertyInfo> list;
 	get_script_property_list(&list);
-	for (List<PropertyInfo>::Element *E = list.front(); E; E = E->next()) {
-		ret.append(E->get().operator Dictionary());
+	for (const PropertyInfo &E : list) {
+		ret.append(E.operator Dictionary());
 	}
 	return ret;
 }
 
-Array Script::_get_script_method_list() {
-	Array ret;
+TypedArray<Dictionary> Script::_get_script_method_list() {
+	TypedArray<Dictionary> ret;
 	List<MethodInfo> list;
 	get_script_method_list(&list);
-	for (List<MethodInfo>::Element *E = list.front(); E; E = E->next()) {
-		ret.append(E->get().operator Dictionary());
+	for (const MethodInfo &E : list) {
+		ret.append(E.operator Dictionary());
 	}
 	return ret;
 }
 
-Array Script::_get_script_signal_list() {
-	Array ret;
+TypedArray<Dictionary> Script::_get_script_signal_list() {
+	TypedArray<Dictionary> ret;
 	List<MethodInfo> list;
 	get_script_signal_list(&list);
-	for (List<MethodInfo>::Element *E = list.front(); E; E = E->next()) {
-		ret.append(E->get().operator Dictionary());
+	for (const MethodInfo &E : list) {
+		ret.append(E.operator Dictionary());
 	}
 	return ret;
 }
 
 Dictionary Script::_get_script_constant_map() {
 	Dictionary ret;
-	Map<StringName, Variant> map;
+	HashMap<StringName, Variant> map;
 	get_constants(&map);
-	for (Map<StringName, Variant>::Element *E = map.front(); E; E = E->next()) {
-		ret[E->key()] = E->value();
+	for (const KeyValue<StringName, Variant> &E : map) {
+		ret[E.key] = E.value;
 	}
 	return ret;
 }
 
+#ifdef TOOLS_ENABLED
+
+PropertyInfo Script::get_class_category() const {
+	String path = get_path();
+	String scr_name;
+
+	if (is_built_in()) {
+		if (get_name().is_empty()) {
+			scr_name = TTR("Built-in script");
+		} else {
+			scr_name = vformat("%s (%s)", get_name(), TTR("Built-in"));
+		}
+	} else {
+		if (get_name().is_empty()) {
+			scr_name = path.get_file();
+		} else {
+			scr_name = get_name();
+		}
+	}
+
+	return PropertyInfo(Variant::NIL, scr_name, PROPERTY_HINT_NONE, path, PROPERTY_USAGE_CATEGORY);
+}
+
+#endif // TOOLS_ENABLED
+
 void Script::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("can_instance"), &Script::can_instance);
+	ClassDB::bind_method(D_METHOD("can_instantiate"), &Script::can_instantiate);
 	//ClassDB::bind_method(D_METHOD("instance_create","base_object"),&Script::instance_create);
 	ClassDB::bind_method(D_METHOD("instance_has", "base_object"), &Script::instance_has);
 	ClassDB::bind_method(D_METHOD("has_source_code"), &Script::has_source_code);
@@ -120,7 +148,7 @@ void Script::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("is_tool"), &Script::is_tool);
 
-	ADD_PROPERTY(PropertyInfo(Variant::STRING, "source_code", PROPERTY_HINT_NONE, "", 0), "set_source_code", "get_source_code");
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "source_code", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NONE), "set_source_code", "get_source_code");
 }
 
 void ScriptServer::set_scripting_enabled(bool p_enabled) {
@@ -138,11 +166,12 @@ ScriptLanguage *ScriptServer::get_language(int p_idx) {
 }
 
 void ScriptServer::register_language(ScriptLanguage *p_language) {
+	ERR_FAIL_NULL(p_language);
 	ERR_FAIL_COND(_language_count >= MAX_LANGUAGES);
 	_languages[_language_count++] = p_language;
 }
 
-void ScriptServer::unregister_language(ScriptLanguage *p_language) {
+void ScriptServer::unregister_language(const ScriptLanguage *p_language) {
 	for (int i = 0; i < _language_count; i++) {
 		if (_languages[i] == p_language) {
 			_language_count--;
@@ -155,10 +184,10 @@ void ScriptServer::unregister_language(ScriptLanguage *p_language) {
 }
 
 void ScriptServer::init_languages() {
-	{ //load global classes
+	{ // Load global classes.
 		global_classes_clear();
 		if (ProjectSettings::get_singleton()->has_setting("_global_script_classes")) {
-			Array script_classes = ProjectSettings::get_singleton()->get("_global_script_classes");
+			Array script_classes = GLOBAL_GET("_global_script_classes");
 
 			for (int i = 0; i < script_classes.size(); i++) {
 				Dictionary c = script_classes[i];
@@ -251,14 +280,13 @@ StringName ScriptServer::get_global_class_native_base(const String &p_class) {
 }
 
 void ScriptServer::get_global_class_list(List<StringName> *r_global_classes) {
-	const StringName *K = nullptr;
 	List<StringName> classes;
-	while ((K = global_classes.next(K))) {
-		classes.push_back(*K);
+	for (const KeyValue<StringName, GlobalScriptClass> &E : global_classes) {
+		classes.push_back(E.key);
 	}
 	classes.sort_custom<StringName::AlphCompare>();
-	for (List<StringName>::Element *E = classes.front(); E; E = E->next()) {
-		r_global_classes->push_back(E->get());
+	for (const StringName &E : classes) {
+		r_global_classes->push_back(E);
 	}
 }
 
@@ -266,18 +294,18 @@ void ScriptServer::save_global_classes() {
 	List<StringName> gc;
 	get_global_class_list(&gc);
 	Array gcarr;
-	for (List<StringName>::Element *E = gc.front(); E; E = E->next()) {
+	for (const StringName &E : gc) {
 		Dictionary d;
-		d["class"] = E->get();
-		d["language"] = global_classes[E->get()].language;
-		d["path"] = global_classes[E->get()].path;
-		d["base"] = global_classes[E->get()].base;
+		d["class"] = E;
+		d["language"] = global_classes[E].language;
+		d["path"] = global_classes[E].path;
+		d["base"] = global_classes[E].base;
 		gcarr.push_back(d);
 	}
 
 	Array old;
 	if (ProjectSettings::get_singleton()->has_setting("_global_script_classes")) {
-		old = ProjectSettings::get_singleton()->get("_global_script_classes");
+		old = GLOBAL_GET("_global_script_classes");
 	}
 	if ((!old.is_empty() || gcarr.is_empty()) && gcarr.hash() == old.hash()) {
 		return;
@@ -294,32 +322,23 @@ void ScriptServer::save_global_classes() {
 }
 
 ////////////////////
+
+Variant ScriptInstance::call_const(const StringName &p_method, const Variant **p_args, int p_argcount, Callable::CallError &r_error) {
+	return callp(p_method, p_args, p_argcount, r_error);
+}
+
 void ScriptInstance::get_property_state(List<Pair<StringName, Variant>> &state) {
 	List<PropertyInfo> pinfo;
 	get_property_list(&pinfo);
-	for (List<PropertyInfo>::Element *E = pinfo.front(); E; E = E->next()) {
-		if (E->get().usage & PROPERTY_USAGE_STORAGE) {
+	for (const PropertyInfo &E : pinfo) {
+		if (E.usage & PROPERTY_USAGE_STORAGE) {
 			Pair<StringName, Variant> p;
-			p.first = E->get().name;
+			p.first = E.name;
 			if (get(p.first, p.second)) {
 				state.push_back(p);
 			}
 		}
 	}
-}
-
-Variant ScriptInstance::call(const StringName &p_method, VARIANT_ARG_DECLARE) {
-	VARIANT_ARGPTRS;
-	int argc = 0;
-	for (int i = 0; i < VARIANT_ARG_MAX; i++) {
-		if (argptr[i]->get_type() == Variant::NIL) {
-			break;
-		}
-		argc++;
-	}
-
-	Callable::CallError error;
-	return call(p_method, argptr, argc, error);
 }
 
 void ScriptInstance::property_set_fallback(const StringName &, const Variant &, bool *r_valid) {
@@ -352,11 +371,14 @@ void ScriptLanguage::get_core_type_words(List<String> *p_core_type_words) const 
 	p_core_type_words->push_back("Vector3");
 	p_core_type_words->push_back("Vector3i");
 	p_core_type_words->push_back("Transform2D");
+	p_core_type_words->push_back("Vector4");
+	p_core_type_words->push_back("Vector4i");
 	p_core_type_words->push_back("Plane");
-	p_core_type_words->push_back("Quat");
+	p_core_type_words->push_back("Quaternion");
 	p_core_type_words->push_back("AABB");
 	p_core_type_words->push_back("Basis");
-	p_core_type_words->push_back("Transform");
+	p_core_type_words->push_back("Transform3D");
+	p_core_type_words->push_back("Projection");
 	p_core_type_words->push_back("Color");
 	p_core_type_words->push_back("StringName");
 	p_core_type_words->push_back("NodePath");
@@ -387,7 +409,9 @@ bool PlaceHolderScriptInstance::set(const StringName &p_name, const Variant &p_v
 	if (values.has(p_name)) {
 		Variant defval;
 		if (script->get_property_default_value(p_name, defval)) {
-			if (defval == p_value) {
+			// The evaluate function ensures that a NIL variant is equal to e.g. an empty Resource.
+			// Simply doing defval == p_value does not do this.
+			if (Variant::evaluate(Variant::OP_EQUAL, defval, p_value)) {
 				values.erase(p_name);
 				return true;
 			}
@@ -397,7 +421,7 @@ bool PlaceHolderScriptInstance::set(const StringName &p_name, const Variant &p_v
 	} else {
 		Variant defval;
 		if (script->get_property_default_value(p_name, defval)) {
-			if (defval != p_value) {
+			if (Variant::evaluate(Variant::OP_NOT_EQUAL, defval, p_value)) {
 				values[p_name] = p_value;
 			}
 			return true;
@@ -430,16 +454,16 @@ bool PlaceHolderScriptInstance::get(const StringName &p_name, Variant &r_ret) co
 
 void PlaceHolderScriptInstance::get_property_list(List<PropertyInfo> *p_properties) const {
 	if (script->is_placeholder_fallback_enabled()) {
-		for (const List<PropertyInfo>::Element *E = properties.front(); E; E = E->next()) {
-			p_properties->push_back(E->get());
+		for (const PropertyInfo &E : properties) {
+			p_properties->push_back(E);
 		}
 	} else {
-		for (const List<PropertyInfo>::Element *E = properties.front(); E; E = E->next()) {
-			PropertyInfo pinfo = E->get();
+		for (const PropertyInfo &E : properties) {
+			PropertyInfo pinfo = E;
 			if (!values.has(pinfo.name)) {
 				pinfo.usage |= PROPERTY_USAGE_SCRIPT_DEFAULT_VALUE;
 			}
-			p_properties->push_back(E->get());
+			p_properties->push_back(E);
 		}
 	}
 }
@@ -487,13 +511,13 @@ bool PlaceHolderScriptInstance::has_method(const StringName &p_method) const {
 	return false;
 }
 
-void PlaceHolderScriptInstance::update(const List<PropertyInfo> &p_properties, const Map<StringName, Variant> &p_values) {
-	Set<StringName> new_values;
-	for (const List<PropertyInfo>::Element *E = p_properties.front(); E; E = E->next()) {
-		StringName n = E->get().name;
+void PlaceHolderScriptInstance::update(const List<PropertyInfo> &p_properties, const HashMap<StringName, Variant> &p_values) {
+	HashSet<StringName> new_values;
+	for (const PropertyInfo &E : p_properties) {
+		StringName n = E.name;
 		new_values.insert(n);
 
-		if (!values.has(n) || values[n].get_type() != E->get().type) {
+		if (!values.has(n) || values[n].get_type() != E.type) {
 			if (p_values.has(n)) {
 				values[n] = p_values[n];
 			}
@@ -503,16 +527,16 @@ void PlaceHolderScriptInstance::update(const List<PropertyInfo> &p_properties, c
 	properties = p_properties;
 	List<StringName> to_remove;
 
-	for (Map<StringName, Variant>::Element *E = values.front(); E; E = E->next()) {
-		if (!new_values.has(E->key())) {
-			to_remove.push_back(E->key());
+	for (KeyValue<StringName, Variant> &E : values) {
+		if (!new_values.has(E.key)) {
+			to_remove.push_back(E.key);
 		}
 
 		Variant defval;
-		if (script->get_property_default_value(E->key(), defval)) {
+		if (script->get_property_default_value(E.key, defval)) {
 			//remove because it's the same as the default value
-			if (defval == E->get()) {
-				to_remove.push_back(E->key());
+			if (defval == E.value) {
+				to_remove.push_back(E.key);
 			}
 		}
 	}
@@ -533,23 +557,23 @@ void PlaceHolderScriptInstance::update(const List<PropertyInfo> &p_properties, c
 
 void PlaceHolderScriptInstance::property_set_fallback(const StringName &p_name, const Variant &p_value, bool *r_valid) {
 	if (script->is_placeholder_fallback_enabled()) {
-		Map<StringName, Variant>::Element *E = values.find(p_name);
+		HashMap<StringName, Variant>::Iterator E = values.find(p_name);
 
 		if (E) {
-			E->value() = p_value;
+			E->value = p_value;
 		} else {
 			values.insert(p_name, p_value);
 		}
 
 		bool found = false;
-		for (const List<PropertyInfo>::Element *F = properties.front(); F; F = F->next()) {
-			if (F->get().name == p_name) {
+		for (const PropertyInfo &F : properties) {
+			if (F.name == p_name) {
 				found = true;
 				break;
 			}
 		}
 		if (!found) {
-			properties.push_back(PropertyInfo(p_value.get_type(), p_name, PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NOEDITOR | PROPERTY_USAGE_SCRIPT_VARIABLE));
+			properties.push_back(PropertyInfo(p_value.get_type(), p_name, PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_SCRIPT_VARIABLE));
 		}
 	}
 
@@ -560,13 +584,13 @@ void PlaceHolderScriptInstance::property_set_fallback(const StringName &p_name, 
 
 Variant PlaceHolderScriptInstance::property_get_fallback(const StringName &p_name, bool *r_valid) {
 	if (script->is_placeholder_fallback_enabled()) {
-		const Map<StringName, Variant>::Element *E = values.find(p_name);
+		HashMap<StringName, Variant>::ConstIterator E = values.find(p_name);
 
 		if (E) {
 			if (r_valid) {
 				*r_valid = true;
 			}
-			return E->value();
+			return E->value;
 		}
 
 		E = constants.find(p_name);
@@ -574,7 +598,7 @@ Variant PlaceHolderScriptInstance::property_get_fallback(const StringName &p_nam
 			if (r_valid) {
 				*r_valid = true;
 			}
-			return E->value();
+			return E->value;
 		}
 	}
 
@@ -583,14 +607,6 @@ Variant PlaceHolderScriptInstance::property_get_fallback(const StringName &p_nam
 	}
 
 	return Variant();
-}
-
-uint16_t PlaceHolderScriptInstance::get_rpc_method_id(const StringName &p_method) const {
-	return UINT16_MAX;
-}
-
-uint16_t PlaceHolderScriptInstance::get_rset_property_id(const StringName &p_method) const {
-	return UINT16_MAX;
 }
 
 PlaceHolderScriptInstance::PlaceHolderScriptInstance(ScriptLanguage *p_language, Ref<Script> p_script, Object *p_owner) :

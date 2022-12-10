@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -33,8 +33,6 @@
 
 #include "core/error/error_list.h"
 #include "core/typedefs.h"
-
-#if !defined(NO_THREADS)
 
 #include <condition_variable>
 #include <mutex>
@@ -69,16 +67,5 @@ public:
 		return false;
 	}
 };
-
-#else
-
-class Semaphore {
-public:
-	_ALWAYS_INLINE_ void post() const {}
-	_ALWAYS_INLINE_ void wait() const {}
-	_ALWAYS_INLINE_ bool try_wait() const { return true; }
-};
-
-#endif
 
 #endif // SEMAPHORE_H

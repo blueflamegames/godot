@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,9 +30,16 @@
 
 #include "scene_shader_forward_clustered.h"
 #include "core/config/project_settings.h"
+#include "core/math/math_defs.h"
 #include "render_forward_clustered.h"
+#include "servers/rendering/renderer_rd/renderer_compositor_rd.h"
+#include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
 
 using namespace RendererSceneRenderImplementation;
+
+void SceneShaderForwardClustered::ShaderData::set_path_hint(const String &p_path) {
+	path = p_path;
+}
 
 void SceneShaderForwardClustered::ShaderData::set_code(const String &p_code) {
 	//compile
@@ -43,19 +50,20 @@ void SceneShaderForwardClustered::ShaderData::set_code(const String &p_code) {
 	uniforms.clear();
 	uses_screen_texture = false;
 
-	if (code == String()) {
+	if (code.is_empty()) {
 		return; //just invalid, but no error
 	}
 
-	ShaderCompilerRD::GeneratedCode gen_code;
+	ShaderCompiler::GeneratedCode gen_code;
 
 	int blend_mode = BLEND_MODE_MIX;
 	int depth_testi = DEPTH_TEST_ENABLED;
 	int alpha_antialiasing_mode = ALPHA_ANTIALIASING_OFF;
-	int cull = CULL_BACK;
+	int cull_modei = CULL_BACK;
 
 	uses_point_size = false;
 	uses_alpha = false;
+	uses_alpha_clip = false;
 	uses_blend_alpha = false;
 	uses_depth_pre_pass = false;
 	uses_discard = false;
@@ -65,6 +73,7 @@ void SceneShaderForwardClustered::ShaderData::set_code(const String &p_code) {
 
 	unshaded = false;
 	uses_vertex = false;
+	uses_position = false;
 	uses_sss = false;
 	uses_transmittance = false;
 	uses_screen_texture = false;
@@ -73,10 +82,14 @@ void SceneShaderForwardClustered::ShaderData::set_code(const String &p_code) {
 	uses_time = false;
 	writes_modelview_or_projection = false;
 	uses_world_coordinates = false;
+	uses_particle_trails = false;
 
 	int depth_drawi = DEPTH_DRAW_OPAQUE;
 
-	ShaderCompilerRD::IdentifierActions actions;
+	ShaderCompiler::IdentifierActions actions;
+	actions.entry_point_stages["vertex"] = ShaderCompiler::STAGE_VERTEX;
+	actions.entry_point_stages["fragment"] = ShaderCompiler::STAGE_FRAGMENT;
+	actions.entry_point_stages["light"] = ShaderCompiler::STAGE_FRAGMENT;
 
 	actions.render_mode_values["blend_add"] = Pair<int *, int>(&blend_mode, BLEND_MODE_ADD);
 	actions.render_mode_values["blend_mix"] = Pair<int *, int>(&blend_mode, BLEND_MODE_MIX);
@@ -92,14 +105,19 @@ void SceneShaderForwardClustered::ShaderData::set_code(const String &p_code) {
 
 	actions.render_mode_values["depth_test_disabled"] = Pair<int *, int>(&depth_testi, DEPTH_TEST_DISABLED);
 
-	actions.render_mode_values["cull_disabled"] = Pair<int *, int>(&cull, CULL_DISABLED);
-	actions.render_mode_values["cull_front"] = Pair<int *, int>(&cull, CULL_FRONT);
-	actions.render_mode_values["cull_back"] = Pair<int *, int>(&cull, CULL_BACK);
+	actions.render_mode_values["cull_disabled"] = Pair<int *, int>(&cull_modei, CULL_DISABLED);
+	actions.render_mode_values["cull_front"] = Pair<int *, int>(&cull_modei, CULL_FRONT);
+	actions.render_mode_values["cull_back"] = Pair<int *, int>(&cull_modei, CULL_BACK);
 
 	actions.render_mode_flags["unshaded"] = &unshaded;
 	actions.render_mode_flags["wireframe"] = &wireframe;
+	actions.render_mode_flags["particle_trails"] = &uses_particle_trails;
 
 	actions.usage_flag_pointers["ALPHA"] = &uses_alpha;
+	actions.usage_flag_pointers["ALPHA_SCISSOR_THRESHOLD"] = &uses_alpha_clip;
+	// Use alpha clip pipeline for alpha hash/dither.
+	// This prevents sorting issues inherent to alpha blending and allows such materials to cast shadows.
+	actions.usage_flag_pointers["ALPHA_HASH_SCALE"] = &uses_alpha_clip;
 	actions.render_mode_flags["depth_prepass_alpha"] = &uses_depth_pre_pass;
 
 	actions.usage_flag_pointers["SSS_STRENGTH"] = &uses_sss;
@@ -120,13 +138,13 @@ void SceneShaderForwardClustered::ShaderData::set_code(const String &p_code) {
 	actions.write_flag_pointers["MODELVIEW_MATRIX"] = &writes_modelview_or_projection;
 	actions.write_flag_pointers["PROJECTION_MATRIX"] = &writes_modelview_or_projection;
 	actions.write_flag_pointers["VERTEX"] = &uses_vertex;
+	actions.write_flag_pointers["POSITION"] = &uses_position;
 
 	actions.uniforms = &uniforms;
 
 	SceneShaderForwardClustered *shader_singleton = (SceneShaderForwardClustered *)SceneShaderForwardClustered::singleton;
 	Error err = shader_singleton->compiler.compile(RS::SHADER_SPATIAL, code, &actions, path, gen_code);
-
-	ERR_FAIL_COND(err != OK);
+	ERR_FAIL_COND_MSG(err != OK, "Shader compilation failed.");
 
 	if (version.is_null()) {
 		version = shader_singleton->shader.version_create();
@@ -134,6 +152,10 @@ void SceneShaderForwardClustered::ShaderData::set_code(const String &p_code) {
 
 	depth_draw = DepthDraw(depth_drawi);
 	depth_test = DepthTest(depth_testi);
+	cull_mode = Cull(cull_modei);
+	uses_screen_texture_mipmaps = gen_code.uses_screen_texture_mipmaps;
+	uses_vertex_time = gen_code.uses_vertex_time;
+	uses_fragment_time = gen_code.uses_fragment_time;
 
 #if 0
 	print_line("**compiling shader:");
@@ -141,14 +163,18 @@ void SceneShaderForwardClustered::ShaderData::set_code(const String &p_code) {
 	for (int i = 0; i < gen_code.defines.size(); i++) {
 		print_line(gen_code.defines[i]);
 	}
+
+	HashMap<String, String>::Iterator el = gen_code.code.begin();
+	while (el) {
+		print_line("\n**code " + el->key + ":\n" + el->value);
+		++el;
+	}
+
 	print_line("\n**uniforms:\n" + gen_code.uniforms);
-	print_line("\n**vertex_globals:\n" + gen_code.vertex_global);
-	print_line("\n**vertex_code:\n" + gen_code.vertex);
-	print_line("\n**fragment_globals:\n" + gen_code.fragment_global);
-	print_line("\n**fragment_code:\n" + gen_code.fragment);
-	print_line("\n**light_code:\n" + gen_code.light);
+	print_line("\n**vertex_globals:\n" + gen_code.stage_globals[ShaderCompiler::STAGE_VERTEX]);
+	print_line("\n**fragment_globals:\n" + gen_code.stage_globals[ShaderCompiler::STAGE_FRAGMENT]);
 #endif
-	shader_singleton->shader.version_set_code(version, gen_code.uniforms, gen_code.vertex_global, gen_code.vertex, gen_code.fragment_global, gen_code.light, gen_code.fragment, gen_code.defines);
+	shader_singleton->shader.version_set_code(version, gen_code.code, gen_code.uniforms, gen_code.stage_globals[ShaderCompiler::STAGE_VERTEX], gen_code.stage_globals[ShaderCompiler::STAGE_FRAGMENT], gen_code.defines);
 	ERR_FAIL_COND(!shader_singleton->shader.version_is_valid(version));
 
 	ubo_size = gen_code.uniform_total_size;
@@ -218,10 +244,10 @@ void SceneShaderForwardClustered::ShaderData::set_code(const String &p_code) {
 		}
 	}
 
-	RD::PipelineColorBlendState blend_state_blend;
-	blend_state_blend.attachments.push_back(blend_attachment);
-	RD::PipelineColorBlendState blend_state_opaque = RD::PipelineColorBlendState::create_disabled(1);
-	RD::PipelineColorBlendState blend_state_opaque_specular = RD::PipelineColorBlendState::create_disabled(2);
+	// Color pass -> attachment 0: Color/Diffuse, attachment 1: Separate Specular, attachment 2: Motion Vectors
+	RD::PipelineColorBlendState blend_state_color_blend;
+	blend_state_color_blend.attachments = { blend_attachment, RD::PipelineColorBlendState::Attachment(), RD::PipelineColorBlendState::Attachment() };
+	RD::PipelineColorBlendState blend_state_color_opaque = RD::PipelineColorBlendState::create_disabled(3);
 	RD::PipelineColorBlendState blend_state_depth_normal_roughness = RD::PipelineColorBlendState::create_disabled(1);
 	RD::PipelineColorBlendState blend_state_depth_normal_roughness_giprobe = RD::PipelineColorBlendState::create_disabled(2);
 
@@ -242,7 +268,7 @@ void SceneShaderForwardClustered::ShaderData::set_code(const String &p_code) {
 			{ RD::POLYGON_CULL_DISABLED, RD::POLYGON_CULL_DISABLED, RD::POLYGON_CULL_DISABLED }
 		};
 
-		RD::PolygonCullMode cull_mode_rd = cull_mode_rd_table[i][cull];
+		RD::PolygonCullMode cull_mode_rd = cull_mode_rd_table[i][cull_mode];
 
 		for (int j = 0; j < RS::PRIMITIVE_MAX; j++) {
 			RD::RenderPrimitive primitive_rd_table[RS::PRIMITIVE_MAX] = {
@@ -255,67 +281,98 @@ void SceneShaderForwardClustered::ShaderData::set_code(const String &p_code) {
 
 			RD::RenderPrimitive primitive_rd = uses_point_size ? RD::RENDER_PRIMITIVE_POINTS : primitive_rd_table[j];
 
-			for (int k = 0; k < SHADER_VERSION_MAX; k++) {
-				if (!static_cast<SceneShaderForwardClustered *>(singleton)->shader.is_variant_enabled(k)) {
+			for (int k = 0; k < PIPELINE_VERSION_MAX; k++) {
+				ShaderVersion shader_version;
+				static const ShaderVersion shader_version_table[PIPELINE_VERSION_MAX] = {
+					SHADER_VERSION_DEPTH_PASS,
+					SHADER_VERSION_DEPTH_PASS_DP,
+					SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS,
+					SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS_AND_VOXEL_GI,
+					SHADER_VERSION_DEPTH_PASS_WITH_MATERIAL,
+					SHADER_VERSION_DEPTH_PASS_WITH_SDF,
+					SHADER_VERSION_DEPTH_PASS_MULTIVIEW,
+					SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS_MULTIVIEW,
+					SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS_AND_VOXEL_GI_MULTIVIEW,
+					SHADER_VERSION_COLOR_PASS,
+				};
+
+				shader_version = shader_version_table[k];
+
+				if (!static_cast<SceneShaderForwardClustered *>(singleton)->shader.is_variant_enabled(shader_version)) {
 					continue;
 				}
 				RD::PipelineRasterizationState raster_state;
 				raster_state.cull_mode = cull_mode_rd;
 				raster_state.wireframe = wireframe;
 
-				RD::PipelineColorBlendState blend_state;
-				RD::PipelineDepthStencilState depth_stencil = depth_stencil_state;
-				RD::PipelineMultisampleState multisample_state;
-
-				if (uses_alpha || uses_blend_alpha) {
-					// only allow these flags to go through if we have some form of msaa
-					if (alpha_antialiasing_mode == ALPHA_ANTIALIASING_ALPHA_TO_COVERAGE) {
-						multisample_state.enable_alpha_to_coverage = true;
-					} else if (alpha_antialiasing_mode == ALPHA_ANTIALIASING_ALPHA_TO_COVERAGE_AND_TO_ONE) {
-						multisample_state.enable_alpha_to_coverage = true;
-						multisample_state.enable_alpha_to_one = true;
-					}
-
-					if (k == SHADER_VERSION_COLOR_PASS || k == SHADER_VERSION_COLOR_PASS_WITH_FORWARD_GI || k == SHADER_VERSION_LIGHTMAP_COLOR_PASS) {
-						blend_state = blend_state_blend;
-						if (depth_draw == DEPTH_DRAW_OPAQUE) {
-							depth_stencil.enable_depth_write = false; //alpha does not draw depth
+				if (k == PIPELINE_VERSION_COLOR_PASS) {
+					for (int l = 0; l < PIPELINE_COLOR_PASS_FLAG_COUNT; l++) {
+						if (!shader_singleton->valid_color_pass_pipelines.has(l)) {
+							continue;
 						}
-					} else if (uses_depth_pre_pass && (k == SHADER_VERSION_DEPTH_PASS || k == SHADER_VERSION_DEPTH_PASS_DP || k == SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS || k == SHADER_VERSION_DEPTH_PASS_WITH_MATERIAL)) {
-						if (k == SHADER_VERSION_DEPTH_PASS || k == SHADER_VERSION_DEPTH_PASS_DP) {
-							//none, blend state contains nothing
-						} else if (k == SHADER_VERSION_DEPTH_PASS_WITH_MATERIAL) {
-							blend_state = RD::PipelineColorBlendState::create_disabled(5); //writes to normal and roughness in opaque way
+
+						RD::PipelineColorBlendState blend_state;
+						RD::PipelineDepthStencilState depth_stencil = depth_stencil_state;
+						RD::PipelineMultisampleState multisample_state;
+
+						int shader_flags = 0;
+						if (l & PIPELINE_COLOR_PASS_FLAG_TRANSPARENT) {
+							if (alpha_antialiasing_mode == ALPHA_ANTIALIASING_ALPHA_TO_COVERAGE) {
+								multisample_state.enable_alpha_to_coverage = true;
+							} else if (alpha_antialiasing_mode == ALPHA_ANTIALIASING_ALPHA_TO_COVERAGE_AND_TO_ONE) {
+								multisample_state.enable_alpha_to_coverage = true;
+								multisample_state.enable_alpha_to_one = true;
+							}
+
+							blend_state = blend_state_color_blend;
+
+							if (depth_draw == DEPTH_DRAW_OPAQUE) {
+								depth_stencil.enable_depth_write = false; //alpha does not draw depth
+							}
 						} else {
-							blend_state = blend_state_opaque; //writes to normal and roughness in opaque way
+							blend_state = blend_state_color_opaque;
+
+							if (l & PIPELINE_COLOR_PASS_FLAG_SEPARATE_SPECULAR) {
+								shader_flags |= SHADER_COLOR_PASS_FLAG_SEPARATE_SPECULAR;
+							}
 						}
-					} else {
-						pipelines[i][j][k].clear();
-						continue; // do not use this version (will error if using it is attempted)
+
+						if (l & PIPELINE_COLOR_PASS_FLAG_MOTION_VECTORS) {
+							shader_flags |= SHADER_COLOR_PASS_FLAG_MOTION_VECTORS;
+						}
+
+						if (l & PIPELINE_COLOR_PASS_FLAG_LIGHTMAP) {
+							shader_flags |= SHADER_COLOR_PASS_FLAG_LIGHTMAP;
+						}
+
+						if (l & PIPELINE_COLOR_PASS_FLAG_MULTIVIEW) {
+							shader_flags |= SHADER_COLOR_PASS_FLAG_MULTIVIEW;
+						}
+
+						int variant = shader_version + shader_flags;
+						RID shader_variant = shader_singleton->shader.version_get_shader(version, variant);
+						color_pipelines[i][j][l].setup(shader_variant, primitive_rd, raster_state, multisample_state, depth_stencil, blend_state, 0, singleton->default_specialization_constants);
 					}
 				} else {
-					if (k == SHADER_VERSION_COLOR_PASS || k == SHADER_VERSION_COLOR_PASS_WITH_FORWARD_GI || k == SHADER_VERSION_LIGHTMAP_COLOR_PASS) {
-						blend_state = blend_state_opaque;
-					} else if (k == SHADER_VERSION_DEPTH_PASS || k == SHADER_VERSION_DEPTH_PASS_DP) {
-						//none, leave empty
-					} else if (k == SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS) {
-						blend_state = blend_state_depth_normal_roughness;
-					} else if (k == SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS_AND_GIPROBE) {
-						blend_state = blend_state_depth_normal_roughness_giprobe;
-					} else if (k == SHADER_VERSION_DEPTH_PASS_WITH_MATERIAL) {
-						blend_state = RD::PipelineColorBlendState::create_disabled(5); //writes to normal and roughness in opaque way
-					} else if (k == SHADER_VERSION_DEPTH_PASS_WITH_SDF) {
-						blend_state = RD::PipelineColorBlendState(); //no color targets for SDF
-					} else {
-						//specular write
-						blend_state = blend_state_opaque_specular;
-						depth_stencil.enable_depth_test = false;
-						depth_stencil.enable_depth_write = false;
-					}
-				}
+					RD::PipelineColorBlendState blend_state;
+					RD::PipelineDepthStencilState depth_stencil = depth_stencil_state;
+					RD::PipelineMultisampleState multisample_state;
 
-				RID shader_variant = shader_singleton->shader.version_get_shader(version, k);
-				pipelines[i][j][k].setup(shader_variant, primitive_rd, raster_state, multisample_state, depth_stencil, blend_state, 0);
+					if (k == PIPELINE_VERSION_DEPTH_PASS || k == PIPELINE_VERSION_DEPTH_PASS_DP || k == PIPELINE_VERSION_DEPTH_PASS_MULTIVIEW) {
+						//none, leave empty
+					} else if (k == PIPELINE_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS || k == PIPELINE_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS_MULTIVIEW) {
+						blend_state = blend_state_depth_normal_roughness;
+					} else if (k == PIPELINE_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS_AND_VOXEL_GI || k == PIPELINE_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS_AND_VOXEL_GI_MULTIVIEW) {
+						blend_state = blend_state_depth_normal_roughness_giprobe;
+					} else if (k == PIPELINE_VERSION_DEPTH_PASS_WITH_MATERIAL) {
+						blend_state = RD::PipelineColorBlendState::create_disabled(5); //writes to normal and roughness in opaque way
+					} else if (k == PIPELINE_VERSION_DEPTH_PASS_WITH_SDF) {
+						blend_state = RD::PipelineColorBlendState(); //no color targets for SDF
+					}
+
+					RID shader_variant = shader_singleton->shader.version_get_shader(version, shader_version);
+					pipelines[i][j][k].setup(shader_variant, primitive_rd, raster_state, multisample_state, depth_stencil, blend_state, 0, singleton->default_specialization_constants);
+				}
 			}
 		}
 	}
@@ -323,52 +380,80 @@ void SceneShaderForwardClustered::ShaderData::set_code(const String &p_code) {
 	valid = true;
 }
 
-void SceneShaderForwardClustered::ShaderData::set_default_texture_param(const StringName &p_name, RID p_texture) {
+void SceneShaderForwardClustered::ShaderData::set_default_texture_parameter(const StringName &p_name, RID p_texture, int p_index) {
 	if (!p_texture.is_valid()) {
-		default_texture_params.erase(p_name);
+		if (default_texture_params.has(p_name) && default_texture_params[p_name].has(p_index)) {
+			default_texture_params[p_name].erase(p_index);
+
+			if (default_texture_params[p_name].is_empty()) {
+				default_texture_params.erase(p_name);
+			}
+		}
 	} else {
-		default_texture_params[p_name] = p_texture;
+		if (!default_texture_params.has(p_name)) {
+			default_texture_params[p_name] = HashMap<int, RID>();
+		}
+		default_texture_params[p_name][p_index] = p_texture;
 	}
 }
 
-void SceneShaderForwardClustered::ShaderData::get_param_list(List<PropertyInfo> *p_param_list) const {
-	Map<int, StringName> order;
+void SceneShaderForwardClustered::ShaderData::get_shader_uniform_list(List<PropertyInfo> *p_param_list) const {
+	HashMap<int, StringName> order;
 
-	for (Map<StringName, ShaderLanguage::ShaderNode::Uniform>::Element *E = uniforms.front(); E; E = E->next()) {
-		if (E->get().scope != ShaderLanguage::ShaderNode::Uniform::SCOPE_LOCAL) {
+	for (const KeyValue<StringName, ShaderLanguage::ShaderNode::Uniform> &E : uniforms) {
+		if (E.value.scope != ShaderLanguage::ShaderNode::Uniform::SCOPE_LOCAL ||
+				E.value.hint == ShaderLanguage::ShaderNode::Uniform::HINT_SCREEN_TEXTURE ||
+				E.value.hint == ShaderLanguage::ShaderNode::Uniform::HINT_NORMAL_ROUGHNESS_TEXTURE ||
+				E.value.hint == ShaderLanguage::ShaderNode::Uniform::HINT_DEPTH_TEXTURE) {
+			// Don't expose any of these.
 			continue;
 		}
 
-		if (E->get().texture_order >= 0) {
-			order[E->get().texture_order + 100000] = E->key();
+		if (E.value.texture_order >= 0) {
+			order[E.value.texture_order + 100000] = E.key;
 		} else {
-			order[E->get().order] = E->key();
+			order[E.value.order] = E.key;
 		}
 	}
 
-	for (Map<int, StringName>::Element *E = order.front(); E; E = E->next()) {
-		PropertyInfo pi = ShaderLanguage::uniform_to_property_info(uniforms[E->get()]);
-		pi.name = E->get();
+	String last_group;
+	for (const KeyValue<int, StringName> &E : order) {
+		String group = uniforms[E.value].group;
+		if (!uniforms[E.value].subgroup.is_empty()) {
+			group += "::" + uniforms[E.value].subgroup;
+		}
+
+		if (group != last_group) {
+			PropertyInfo pi;
+			pi.usage = PROPERTY_USAGE_GROUP;
+			pi.name = group;
+			p_param_list->push_back(pi);
+
+			last_group = group;
+		}
+
+		PropertyInfo pi = ShaderLanguage::uniform_to_property_info(uniforms[E.value]);
+		pi.name = E.value;
 		p_param_list->push_back(pi);
 	}
 }
 
-void SceneShaderForwardClustered::ShaderData::get_instance_param_list(List<RendererStorage::InstanceShaderParam> *p_param_list) const {
-	for (Map<StringName, ShaderLanguage::ShaderNode::Uniform>::Element *E = uniforms.front(); E; E = E->next()) {
-		if (E->get().scope != ShaderLanguage::ShaderNode::Uniform::SCOPE_INSTANCE) {
+void SceneShaderForwardClustered::ShaderData::get_instance_param_list(List<RendererMaterialStorage::InstanceShaderParam> *p_param_list) const {
+	for (const KeyValue<StringName, ShaderLanguage::ShaderNode::Uniform> &E : uniforms) {
+		if (E.value.scope != ShaderLanguage::ShaderNode::Uniform::SCOPE_INSTANCE) {
 			continue;
 		}
 
-		RendererStorage::InstanceShaderParam p;
-		p.info = ShaderLanguage::uniform_to_property_info(E->get());
-		p.info.name = E->key(); //supply name
-		p.index = E->get().instance_index;
-		p.default_value = ShaderLanguage::constant_value_to_variant(E->get().default_value, E->get().type, E->get().hint);
+		RendererMaterialStorage::InstanceShaderParam p;
+		p.info = ShaderLanguage::uniform_to_property_info(E.value);
+		p.info.name = E.key; //supply name
+		p.index = E.value.instance_index;
+		p.default_value = ShaderLanguage::constant_value_to_variant(E.value.default_value, E.value.type, E.value.array_size, E.value.hint);
 		p_param_list->push_back(p);
 	}
 }
 
-bool SceneShaderForwardClustered::ShaderData::is_param_texture(const StringName &p_param) const {
+bool SceneShaderForwardClustered::ShaderData::is_parameter_texture(const StringName &p_param) const {
 	if (!uniforms.has(p_param)) {
 		return false;
 	}
@@ -377,18 +462,22 @@ bool SceneShaderForwardClustered::ShaderData::is_param_texture(const StringName 
 }
 
 bool SceneShaderForwardClustered::ShaderData::is_animated() const {
-	return false;
+	return (uses_fragment_time && uses_discard) || (uses_vertex_time && uses_vertex);
 }
 
 bool SceneShaderForwardClustered::ShaderData::casts_shadows() const {
-	return false;
+	bool has_read_screen_alpha = uses_screen_texture || uses_depth_texture || uses_normal_texture;
+	bool has_base_alpha = (uses_alpha && !uses_alpha_clip) || has_read_screen_alpha;
+	bool has_alpha = has_base_alpha || uses_blend_alpha;
+
+	return !has_alpha || (uses_depth_pre_pass && !(depth_draw == DEPTH_DRAW_DISABLED || depth_test == DEPTH_TEST_DISABLED));
 }
 
 Variant SceneShaderForwardClustered::ShaderData::get_default_parameter(const StringName &p_parameter) const {
 	if (uniforms.has(p_parameter)) {
 		ShaderLanguage::ShaderNode::Uniform uniform = uniforms[p_parameter];
 		Vector<ShaderLanguage::ConstantNode::Value> default_value = uniform.default_value;
-		return ShaderLanguage::constant_value_to_variant(default_value, uniform.type, uniform.hint);
+		return ShaderLanguage::constant_value_to_variant(default_value, uniform.type, uniform.array_size, uniform.hint);
 	}
 	return Variant();
 }
@@ -399,9 +488,8 @@ RS::ShaderNativeSourceCode SceneShaderForwardClustered::ShaderData::get_native_s
 	return shader_singleton->shader.version_get_native_source_code(version);
 }
 
-SceneShaderForwardClustered::ShaderData::ShaderData() {
-	valid = false;
-	uses_screen_texture = false;
+SceneShaderForwardClustered::ShaderData::ShaderData() :
+		shader_list_element(this) {
 }
 
 SceneShaderForwardClustered::ShaderData::~ShaderData() {
@@ -413,8 +501,9 @@ SceneShaderForwardClustered::ShaderData::~ShaderData() {
 	}
 }
 
-RendererStorageRD::ShaderData *SceneShaderForwardClustered::_create_shader_func() {
+RendererRD::MaterialStorage::ShaderData *SceneShaderForwardClustered::_create_shader_func() {
 	ShaderData *shader_data = memnew(ShaderData);
+	singleton->shader_list.add(&shader_data->shader_list_element);
 	return shader_data;
 }
 
@@ -426,100 +515,19 @@ void SceneShaderForwardClustered::MaterialData::set_next_pass(RID p_pass) {
 	next_pass = p_pass;
 }
 
-void SceneShaderForwardClustered::MaterialData::update_parameters(const Map<StringName, Variant> &p_parameters, bool p_uniform_dirty, bool p_textures_dirty) {
+bool SceneShaderForwardClustered::MaterialData::update_parameters(const HashMap<StringName, Variant> &p_parameters, bool p_uniform_dirty, bool p_textures_dirty) {
 	SceneShaderForwardClustered *shader_singleton = (SceneShaderForwardClustered *)SceneShaderForwardClustered::singleton;
 
-	if ((uint32_t)ubo_data.size() != shader_data->ubo_size) {
-		p_uniform_dirty = true;
-		if (uniform_buffer.is_valid()) {
-			RD::get_singleton()->free(uniform_buffer);
-			uniform_buffer = RID();
-		}
-
-		ubo_data.resize(shader_data->ubo_size);
-		if (ubo_data.size()) {
-			uniform_buffer = RD::get_singleton()->uniform_buffer_create(ubo_data.size());
-			memset(ubo_data.ptrw(), 0, ubo_data.size()); //clear
-		}
-
-		//clear previous uniform set
-		if (uniform_set.is_valid() && RD::get_singleton()->uniform_set_is_valid(uniform_set)) {
-			RD::get_singleton()->free(uniform_set);
-			uniform_set = RID();
-		}
-	}
-
-	//check whether buffer changed
-	if (p_uniform_dirty && ubo_data.size()) {
-		update_uniform_buffer(shader_data->uniforms, shader_data->ubo_offsets.ptr(), p_parameters, ubo_data.ptrw(), ubo_data.size(), false);
-		RD::get_singleton()->buffer_update(uniform_buffer, 0, ubo_data.size(), ubo_data.ptrw(), RD::BARRIER_MASK_RASTER);
-	}
-
-	uint32_t tex_uniform_count = shader_data->texture_uniforms.size();
-
-	if ((uint32_t)texture_cache.size() != tex_uniform_count) {
-		texture_cache.resize(tex_uniform_count);
-		p_textures_dirty = true;
-
-		//clear previous uniform set
-		if (uniform_set.is_valid() && RD::get_singleton()->uniform_set_is_valid(uniform_set)) {
-			RD::get_singleton()->free(uniform_set);
-			uniform_set = RID();
-		}
-	}
-
-	if (p_textures_dirty && tex_uniform_count) {
-		update_textures(p_parameters, shader_data->default_texture_params, shader_data->texture_uniforms, texture_cache.ptrw(), true);
-	}
-
-	if (shader_data->ubo_size == 0 && shader_data->texture_uniforms.size() == 0) {
-		// This material does not require an uniform set, so don't create it.
-		return;
-	}
-
-	if (!p_textures_dirty && uniform_set.is_valid() && RD::get_singleton()->uniform_set_is_valid(uniform_set)) {
-		//no reason to update uniform set, only UBO (or nothing) was needed to update
-		return;
-	}
-
-	Vector<RD::Uniform> uniforms;
-
-	{
-		if (shader_data->ubo_size) {
-			RD::Uniform u;
-			u.uniform_type = RD::UNIFORM_TYPE_UNIFORM_BUFFER;
-			u.binding = 0;
-			u.ids.push_back(uniform_buffer);
-			uniforms.push_back(u);
-		}
-
-		const RID *textures = texture_cache.ptrw();
-		for (uint32_t i = 0; i < tex_uniform_count; i++) {
-			RD::Uniform u;
-			u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
-			u.binding = 1 + i;
-			u.ids.push_back(textures[i]);
-			uniforms.push_back(u);
-		}
-	}
-
-	uniform_set = RD::get_singleton()->uniform_set_create(uniforms, shader_singleton->shader.version_get_shader(shader_data->version, 0), RenderForwardClustered::MATERIAL_UNIFORM_SET);
+	return update_parameters_uniform_set(p_parameters, p_uniform_dirty, p_textures_dirty, shader_data->uniforms, shader_data->ubo_offsets.ptr(), shader_data->texture_uniforms, shader_data->default_texture_params, shader_data->ubo_size, uniform_set, shader_singleton->shader.version_get_shader(shader_data->version, 0), RenderForwardClustered::MATERIAL_UNIFORM_SET, true, RD::BARRIER_MASK_RASTER);
 }
 
 SceneShaderForwardClustered::MaterialData::~MaterialData() {
-	if (uniform_set.is_valid() && RD::get_singleton()->uniform_set_is_valid(uniform_set)) {
-		RD::get_singleton()->free(uniform_set);
-	}
-
-	if (uniform_buffer.is_valid()) {
-		RD::get_singleton()->free(uniform_buffer);
-	}
+	free_parameters_uniform_set(uniform_set);
 }
 
-RendererStorageRD::MaterialData *SceneShaderForwardClustered::_create_material_func(ShaderData *p_shader) {
+RendererRD::MaterialStorage::MaterialData *SceneShaderForwardClustered::_create_material_func(ShaderData *p_shader) {
 	MaterialData *material_data = memnew(MaterialData);
 	material_data->shader_data = p_shader;
-	material_data->last_frame = false;
 	//update will happen later anyway so do nothing.
 	return material_data;
 }
@@ -532,62 +540,102 @@ SceneShaderForwardClustered::SceneShaderForwardClustered() {
 }
 
 SceneShaderForwardClustered::~SceneShaderForwardClustered() {
+	RendererRD::MaterialStorage *material_storage = RendererRD::MaterialStorage::get_singleton();
+
 	RD::get_singleton()->free(default_vec4_xform_buffer);
 	RD::get_singleton()->free(shadow_sampler);
 
-	storage->free(wireframe_material_shader);
-	storage->free(overdraw_material_shader);
-	storage->free(default_shader);
+	material_storage->shader_free(overdraw_material_shader);
+	material_storage->shader_free(default_shader);
 
-	storage->free(wireframe_material);
-	storage->free(overdraw_material);
-	storage->free(default_material);
+	material_storage->material_free(overdraw_material);
+	material_storage->material_free(default_material);
 }
 
-void SceneShaderForwardClustered::init(RendererStorageRD *p_storage, const String p_defines) {
-	storage = p_storage;
+void SceneShaderForwardClustered::init(const String p_defines) {
+	RendererRD::MaterialStorage *material_storage = RendererRD::MaterialStorage::get_singleton();
 
 	{
 		Vector<String> shader_versions;
-		shader_versions.push_back("\n#define MODE_RENDER_DEPTH\n");
-		shader_versions.push_back("\n#define MODE_RENDER_DEPTH\n#define MODE_DUAL_PARABOLOID\n");
-		shader_versions.push_back("\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_NORMAL_ROUGHNESS\n");
-		shader_versions.push_back("\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_NORMAL_ROUGHNESS\n#define MODE_RENDER_GIPROBE\n");
-		shader_versions.push_back("\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_MATERIAL\n");
-		shader_versions.push_back("\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_SDF\n");
-		shader_versions.push_back("");
-		shader_versions.push_back("\n#define USE_FORWARD_GI\n");
-		shader_versions.push_back("\n#define MODE_MULTIPLE_RENDER_TARGETS\n");
-		shader_versions.push_back("\n#define USE_LIGHTMAP\n");
-		shader_versions.push_back("\n#define MODE_MULTIPLE_RENDER_TARGETS\n#define USE_LIGHTMAP\n");
+		shader_versions.push_back("\n#define MODE_RENDER_DEPTH\n"); // SHADER_VERSION_DEPTH_PASS
+		shader_versions.push_back("\n#define MODE_RENDER_DEPTH\n#define MODE_DUAL_PARABOLOID\n"); // SHADER_VERSION_DEPTH_PASS_DP
+		shader_versions.push_back("\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_NORMAL_ROUGHNESS\n"); // SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS
+		shader_versions.push_back("\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_NORMAL_ROUGHNESS\n#define MODE_RENDER_VOXEL_GI\n"); // SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS_AND_VOXEL_GI
+		shader_versions.push_back("\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_MATERIAL\n"); // SHADER_VERSION_DEPTH_PASS_WITH_MATERIAL
+		shader_versions.push_back("\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_SDF\n"); // SHADER_VERSION_DEPTH_PASS_WITH_SDF
+		shader_versions.push_back("\n#define USE_MULTIVIEW\n#define MODE_RENDER_DEPTH\n"); // SHADER_VERSION_DEPTH_PASS_MULTIVIEW
+		shader_versions.push_back("\n#define USE_MULTIVIEW\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_NORMAL_ROUGHNESS\n"); // SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS_MULTIVIEW
+		shader_versions.push_back("\n#define USE_MULTIVIEW\n#define MODE_RENDER_DEPTH\n#define MODE_RENDER_NORMAL_ROUGHNESS\n#define MODE_RENDER_VOXEL_GI\n"); // SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS_AND_VOXEL_GI_MULTIVIEW
+
+		Vector<String> color_pass_flags = {
+			"\n#define MODE_SEPARATE_SPECULAR\n", // SHADER_COLOR_PASS_FLAG_SEPARATE_SPECULAR
+			"\n#define USE_LIGHTMAP\n", // SHADER_COLOR_PASS_FLAG_LIGHTMAP
+			"\n#define USE_MULTIVIEW\n", // SHADER_COLOR_PASS_FLAG_MULTIVIEW
+			"\n#define MOTION_VECTORS\n", // SHADER_COLOR_PASS_FLAG_MOTION_VECTORS
+		};
+
+		for (int i = 0; i < SHADER_COLOR_PASS_FLAG_COUNT; i++) {
+			String version = "";
+			for (int j = 0; (1 << j) < SHADER_COLOR_PASS_FLAG_COUNT; j += 1) {
+				if ((1 << j) & i) {
+					version += color_pass_flags[j];
+				}
+			}
+			shader_versions.push_back(version);
+		}
+
 		shader.initialize(shader_versions, p_defines);
 
-		/*
-		if (p_is_low_end) {
-			//disable the high end versions
-			shader.set_variant_enabled(SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS, false);
-			shader.set_variant_enabled(SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS_AND_GIPROBE, false);
-			shader.set_variant_enabled(SHADER_VERSION_DEPTH_PASS_WITH_SDF, false);
-			shader.set_variant_enabled(SHADER_VERSION_COLOR_PASS_WITH_FORWARD_GI, false);
-			shader.set_variant_enabled(SHADER_VERSION_COLOR_PASS_WITH_SEPARATE_SPECULAR, false);
-			shader.set_variant_enabled(SHADER_VERSION_LIGHTMAP_COLOR_PASS_WITH_SEPARATE_SPECULAR, false);
+		if (!RendererCompositorRD::singleton->is_xr_enabled()) {
+			shader.set_variant_enabled(SHADER_VERSION_DEPTH_PASS_MULTIVIEW, false);
+			shader.set_variant_enabled(SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS_MULTIVIEW, false);
+			shader.set_variant_enabled(SHADER_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS_AND_VOXEL_GI_MULTIVIEW, false);
+			// TODO Add a way to enable/disable color pass flags
 		}
-		*/
 	}
 
-	storage->shader_set_data_request_function(RendererStorageRD::SHADER_TYPE_3D, _create_shader_funcs);
-	storage->material_set_data_request_function(RendererStorageRD::SHADER_TYPE_3D, _create_material_funcs);
+	valid_color_pass_pipelines.insert(0);
+
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_TRANSPARENT);
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_TRANSPARENT | PIPELINE_COLOR_PASS_FLAG_LIGHTMAP);
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_TRANSPARENT | PIPELINE_COLOR_PASS_FLAG_MULTIVIEW);
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_TRANSPARENT | PIPELINE_COLOR_PASS_FLAG_MOTION_VECTORS);
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_TRANSPARENT | PIPELINE_COLOR_PASS_FLAG_LIGHTMAP | PIPELINE_COLOR_PASS_FLAG_MULTIVIEW);
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_TRANSPARENT | PIPELINE_COLOR_PASS_FLAG_LIGHTMAP | PIPELINE_COLOR_PASS_FLAG_MOTION_VECTORS);
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_TRANSPARENT | PIPELINE_COLOR_PASS_FLAG_MULTIVIEW | PIPELINE_COLOR_PASS_FLAG_MOTION_VECTORS);
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_TRANSPARENT | PIPELINE_COLOR_PASS_FLAG_LIGHTMAP | PIPELINE_COLOR_PASS_FLAG_MULTIVIEW | PIPELINE_COLOR_PASS_FLAG_MOTION_VECTORS);
+
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_SEPARATE_SPECULAR);
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_SEPARATE_SPECULAR | PIPELINE_COLOR_PASS_FLAG_LIGHTMAP);
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_SEPARATE_SPECULAR | PIPELINE_COLOR_PASS_FLAG_MULTIVIEW);
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_SEPARATE_SPECULAR | PIPELINE_COLOR_PASS_FLAG_MOTION_VECTORS);
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_SEPARATE_SPECULAR | PIPELINE_COLOR_PASS_FLAG_LIGHTMAP | PIPELINE_COLOR_PASS_FLAG_MULTIVIEW);
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_SEPARATE_SPECULAR | PIPELINE_COLOR_PASS_FLAG_LIGHTMAP | PIPELINE_COLOR_PASS_FLAG_MOTION_VECTORS);
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_SEPARATE_SPECULAR | PIPELINE_COLOR_PASS_FLAG_LIGHTMAP | PIPELINE_COLOR_PASS_FLAG_MULTIVIEW | PIPELINE_COLOR_PASS_FLAG_MOTION_VECTORS);
+
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_LIGHTMAP);
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_LIGHTMAP | PIPELINE_COLOR_PASS_FLAG_MULTIVIEW);
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_LIGHTMAP | PIPELINE_COLOR_PASS_FLAG_MOTION_VECTORS);
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_LIGHTMAP | PIPELINE_COLOR_PASS_FLAG_MULTIVIEW | PIPELINE_COLOR_PASS_FLAG_MOTION_VECTORS);
+
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_MULTIVIEW);
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_MULTIVIEW | PIPELINE_COLOR_PASS_FLAG_MOTION_VECTORS);
+
+	valid_color_pass_pipelines.insert(PIPELINE_COLOR_PASS_FLAG_MOTION_VECTORS);
+
+	material_storage->shader_set_data_request_function(RendererRD::MaterialStorage::SHADER_TYPE_3D, _create_shader_funcs);
+	material_storage->material_set_data_request_function(RendererRD::MaterialStorage::SHADER_TYPE_3D, _create_material_funcs);
 
 	{
 		//shader compiler
-		ShaderCompilerRD::DefaultIdentifierActions actions;
+		ShaderCompiler::DefaultIdentifierActions actions;
 
-		actions.renames["WORLD_MATRIX"] = "world_matrix";
-		actions.renames["WORLD_NORMAL_MATRIX"] = "world_normal_matrix";
-		actions.renames["INV_CAMERA_MATRIX"] = "scene_data.inv_camera_matrix";
-		actions.renames["CAMERA_MATRIX"] = "scene_data.camera_matrix";
+		actions.renames["MODEL_MATRIX"] = "read_model_matrix";
+		actions.renames["MODEL_NORMAL_MATRIX"] = "model_normal_matrix";
+		actions.renames["VIEW_MATRIX"] = "scene_data.view_matrix";
+		actions.renames["INV_VIEW_MATRIX"] = "inv_view_matrix";
 		actions.renames["PROJECTION_MATRIX"] = "projection_matrix";
-		actions.renames["INV_PROJECTION_MATRIX"] = "scene_data.inv_projection_matrix";
+		actions.renames["INV_PROJECTION_MATRIX"] = "inv_projection_matrix";
 		actions.renames["MODELVIEW_MATRIX"] = "modelview";
 		actions.renames["MODELVIEW_NORMAL_MATRIX"] = "modelview_normal";
 
@@ -601,6 +649,7 @@ void SceneShaderForwardClustered::init(RendererStorageRD *p_storage, const Strin
 		actions.renames["COLOR"] = "color_interp";
 		actions.renames["POINT_SIZE"] = "gl_PointSize";
 		actions.renames["INSTANCE_ID"] = "gl_InstanceIndex";
+		actions.renames["VERTEX_ID"] = "gl_VertexIndex";
 
 		actions.renames["ALPHA_SCISSOR_THRESHOLD"] = "alpha_scissor_threshold";
 		actions.renames["ALPHA_HASH_SCALE"] = "alpha_hash_scale";
@@ -609,7 +658,10 @@ void SceneShaderForwardClustered::init(RendererStorageRD *p_storage, const Strin
 
 		//builtins
 
-		actions.renames["TIME"] = "scene_data.time";
+		actions.renames["TIME"] = "global_time";
+		actions.renames["PI"] = _MKSTR(Math_PI);
+		actions.renames["TAU"] = _MKSTR(Math_TAU);
+		actions.renames["E"] = _MKSTR(Math_E);
 		actions.renames["VIEWPORT_SIZE"] = "scene_data.viewport_size";
 
 		actions.renames["FRAGCOORD"] = "gl_FragCoord";
@@ -624,13 +676,12 @@ void SceneShaderForwardClustered::init(RendererStorageRD *p_storage, const Strin
 		actions.renames["RIM"] = "rim";
 		actions.renames["RIM_TINT"] = "rim_tint";
 		actions.renames["CLEARCOAT"] = "clearcoat";
-		actions.renames["CLEARCOAT_GLOSS"] = "clearcoat_gloss";
+		actions.renames["CLEARCOAT_ROUGHNESS"] = "clearcoat_roughness";
 		actions.renames["ANISOTROPY"] = "anisotropy";
 		actions.renames["ANISOTROPY_FLOW"] = "anisotropy_flow";
 		actions.renames["SSS_STRENGTH"] = "sss_strength";
 		actions.renames["SSS_TRANSMITTANCE_COLOR"] = "transmittance_color";
 		actions.renames["SSS_TRANSMITTANCE_DEPTH"] = "transmittance_depth";
-		actions.renames["SSS_TRANSMITTANCE_CURVE"] = "transmittance_curve";
 		actions.renames["SSS_TRANSMITTANCE_BOOST"] = "transmittance_boost";
 		actions.renames["BACKLIGHT"] = "backlight";
 		actions.renames["AO"] = "ao";
@@ -644,7 +695,7 @@ void SceneShaderForwardClustered::init(RendererStorageRD *p_storage, const Strin
 		actions.renames["NORMAL_ROUGHNESS_TEXTURE"] = "normal_roughness_buffer";
 		actions.renames["DEPTH"] = "gl_FragDepth";
 		actions.renames["OUTPUT_IS_SRGB"] = "true";
-		actions.renames["FOG"] = "custom_fog";
+		actions.renames["FOG"] = "fog";
 		actions.renames["RADIANCE"] = "custom_radiance";
 		actions.renames["IRRADIANCE"] = "custom_irradiance";
 		actions.renames["BONE_INDICES"] = "bone_attrib";
@@ -653,13 +704,23 @@ void SceneShaderForwardClustered::init(RendererStorageRD *p_storage, const Strin
 		actions.renames["CUSTOM1"] = "custom1_attrib";
 		actions.renames["CUSTOM2"] = "custom2_attrib";
 		actions.renames["CUSTOM3"] = "custom3_attrib";
+		actions.renames["OUTPUT_IS_SRGB"] = "SHADER_IS_SRGB";
+
+		actions.renames["NODE_POSITION_WORLD"] = "read_model_matrix[3].xyz";
+		actions.renames["CAMERA_POSITION_WORLD"] = "scene_data.inv_view_matrix[3].xyz";
+		actions.renames["CAMERA_DIRECTION_WORLD"] = "scene_data.view_matrix[3].xyz";
+		actions.renames["CAMERA_VISIBLE_LAYERS"] = "scene_data.camera_visible_layers";
+		actions.renames["NODE_POSITION_VIEW"] = "(read_model_matrix * scene_data.view_matrix)[3].xyz";
+
+		actions.renames["VIEW_INDEX"] = "ViewIndex";
+		actions.renames["VIEW_MONO_LEFT"] = "0";
+		actions.renames["VIEW_RIGHT"] = "1";
 
 		//for light
 		actions.renames["VIEW"] = "view";
 		actions.renames["LIGHT_COLOR"] = "light_color";
 		actions.renames["LIGHT"] = "light";
 		actions.renames["ATTENUATION"] = "attenuation";
-		actions.renames["SHADOW_ATTENUATION"] = "shadow_attenuation";
 		actions.renames["DIFFUSE_LIGHT"] = "diffuse_light";
 		actions.renames["SPECULAR_LIGHT"] = "specular_light";
 
@@ -669,7 +730,7 @@ void SceneShaderForwardClustered::init(RendererStorageRD *p_storage, const Strin
 		actions.usage_defines["RIM"] = "#define LIGHT_RIM_USED\n";
 		actions.usage_defines["RIM_TINT"] = "@RIM";
 		actions.usage_defines["CLEARCOAT"] = "#define LIGHT_CLEARCOAT_USED\n";
-		actions.usage_defines["CLEARCOAT_GLOSS"] = "@CLEARCOAT";
+		actions.usage_defines["CLEARCOAT_ROUGHNESS"] = "@CLEARCOAT";
 		actions.usage_defines["ANISOTROPY"] = "#define LIGHT_ANISOTROPY_USED\n";
 		actions.usage_defines["ANISOTROPY_FLOW"] = "@ANISOTROPY";
 		actions.usage_defines["AO"] = "#define AO_USED\n";
@@ -678,10 +739,10 @@ void SceneShaderForwardClustered::init(RendererStorageRD *p_storage, const Strin
 		actions.usage_defines["UV2"] = "#define UV2_USED\n";
 		actions.usage_defines["BONE_INDICES"] = "#define BONES_USED\n";
 		actions.usage_defines["BONE_WEIGHTS"] = "#define WEIGHTS_USED\n";
-		actions.usage_defines["CUSTOM0"] = "#define CUSTOM0\n";
-		actions.usage_defines["CUSTOM1"] = "#define CUSTOM1\n";
-		actions.usage_defines["CUSTOM2"] = "#define CUSTOM2\n";
-		actions.usage_defines["CUSTOM3"] = "#define CUSTOM3\n";
+		actions.usage_defines["CUSTOM0"] = "#define CUSTOM0_USED\n";
+		actions.usage_defines["CUSTOM1"] = "#define CUSTOM1_USED\n";
+		actions.usage_defines["CUSTOM2"] = "#define CUSTOM2_USED\n";
+		actions.usage_defines["CUSTOM3"] = "#define CUSTOM3_USED\n";
 		actions.usage_defines["NORMAL_MAP"] = "#define NORMAL_MAP_USED\n";
 		actions.usage_defines["NORMAL_MAP_DEPTH"] = "@NORMAL_MAP";
 		actions.usage_defines["COLOR"] = "#define COLOR_USED\n";
@@ -706,11 +767,15 @@ void SceneShaderForwardClustered::init(RendererStorageRD *p_storage, const Strin
 		actions.usage_defines["RADIANCE"] = "#define CUSTOM_RADIANCE_USED\n";
 		actions.usage_defines["IRRADIANCE"] = "#define CUSTOM_IRRADIANCE_USED\n";
 
+		actions.usage_defines["MODEL_MATRIX"] = "#define MODEL_MATRIX_USED\n";
+
 		actions.render_mode_defines["skip_vertex_transform"] = "#define SKIP_TRANSFORM_USED\n";
 		actions.render_mode_defines["world_vertex_coords"] = "#define VERTEX_WORLD_COORDS_USED\n";
 		actions.render_mode_defines["ensure_correct_normals"] = "#define ENSURE_CORRECT_NORMALS\n";
 		actions.render_mode_defines["cull_front"] = "#define DO_SIDE_CHECK\n";
 		actions.render_mode_defines["cull_disabled"] = "#define DO_SIDE_CHECK\n";
+		actions.render_mode_defines["particle_trails"] = "#define USE_PARTICLE_TRAILS\n";
+		actions.render_mode_defines["depth_draw_opaque"] = "#define USE_OPAQUE_PREPASS\n";
 
 		bool force_lambert = GLOBAL_GET("rendering/shading/overrides/force_lambert_over_burley");
 
@@ -718,22 +783,17 @@ void SceneShaderForwardClustered::init(RendererStorageRD *p_storage, const Strin
 			actions.render_mode_defines["diffuse_burley"] = "#define DIFFUSE_BURLEY\n";
 		}
 
-		actions.render_mode_defines["diffuse_oren_nayar"] = "#define DIFFUSE_OREN_NAYAR\n";
 		actions.render_mode_defines["diffuse_lambert_wrap"] = "#define DIFFUSE_LAMBERT_WRAP\n";
 		actions.render_mode_defines["diffuse_toon"] = "#define DIFFUSE_TOON\n";
 
 		actions.render_mode_defines["sss_mode_skin"] = "#define SSS_MODE_SKIN\n";
 
-		bool force_blinn = GLOBAL_GET("rendering/shading/overrides/force_blinn_over_ggx");
+		actions.render_mode_defines["specular_schlick_ggx"] = "#define SPECULAR_SCHLICK_GGX\n";
 
-		if (!force_blinn) {
-			actions.render_mode_defines["specular_schlick_ggx"] = "#define SPECULAR_SCHLICK_GGX\n";
-		} else {
-			actions.render_mode_defines["specular_schlick_ggx"] = "#define SPECULAR_BLINN\n";
-		}
+		actions.custom_samplers["SCREEN_TEXTURE"] = "material_samplers[3]"; // linear filter with mipmaps
+		actions.custom_samplers["DEPTH_TEXTURE"] = "material_samplers[3]";
+		actions.custom_samplers["NORMAL_ROUGHNESS_TEXTURE"] = "material_samplers[1]"; // linear filter
 
-		actions.render_mode_defines["specular_blinn"] = "#define SPECULAR_BLINN\n";
-		actions.render_mode_defines["specular_phong"] = "#define SPECULAR_PHONG\n";
 		actions.render_mode_defines["specular_toon"] = "#define SPECULAR_TOON\n";
 		actions.render_mode_defines["specular_disabled"] = "#define SPECULAR_DISABLED\n";
 		actions.render_mode_defines["shadows_disabled"] = "#define SHADOWS_DISABLED\n";
@@ -745,44 +805,70 @@ void SceneShaderForwardClustered::init(RendererStorageRD *p_storage, const Strin
 		actions.base_texture_binding_index = 1;
 		actions.texture_layout_set = RenderForwardClustered::MATERIAL_UNIFORM_SET;
 		actions.base_uniform_string = "material.";
-		actions.base_varying_index = 10;
+		actions.base_varying_index = 11;
 
 		actions.default_filter = ShaderLanguage::FILTER_LINEAR_MIPMAP;
 		actions.default_repeat = ShaderLanguage::REPEAT_ENABLE;
-		actions.global_buffer_array_variable = "global_variables.data";
-		actions.instance_uniform_index_variable = "draw_call.instance_uniforms_ofs";
+		actions.global_buffer_array_variable = "global_shader_uniforms.data";
+		actions.instance_uniform_index_variable = "instances.data[instance_index_interp].instance_uniforms_ofs";
 
 		compiler.initialize(actions);
 	}
 
 	{
 		//default material and shader
-		default_shader = storage->shader_allocate();
-		storage->shader_initialize(default_shader);
-		storage->shader_set_code(default_shader, "shader_type spatial; void vertex() { ROUGHNESS = 0.8; } void fragment() { ALBEDO=vec3(0.6); ROUGHNESS=0.8; METALLIC=0.2; } \n");
-		default_material = storage->material_allocate();
-		storage->material_initialize(default_material);
-		storage->material_set_shader(default_material, default_shader);
+		default_shader = material_storage->shader_allocate();
+		material_storage->shader_initialize(default_shader);
+		material_storage->shader_set_code(default_shader, R"(
+// Default 3D material shader (clustered).
 
-		MaterialData *md = (MaterialData *)storage->material_get_data(default_material, RendererStorageRD::SHADER_TYPE_3D);
+shader_type spatial;
+
+void vertex() {
+	ROUGHNESS = 0.8;
+}
+
+void fragment() {
+	ALBEDO = vec3(0.6);
+	ROUGHNESS = 0.8;
+	METALLIC = 0.2;
+}
+)");
+		default_material = material_storage->material_allocate();
+		material_storage->material_initialize(default_material);
+		material_storage->material_set_shader(default_material, default_shader);
+
+		MaterialData *md = static_cast<MaterialData *>(material_storage->material_get_data(default_material, RendererRD::MaterialStorage::SHADER_TYPE_3D));
 		default_shader_rd = shader.version_get_shader(md->shader_data->version, SHADER_VERSION_COLOR_PASS);
 		default_shader_sdfgi_rd = shader.version_get_shader(md->shader_data->version, SHADER_VERSION_DEPTH_PASS_WITH_SDF);
+
+		default_material_shader_ptr = md->shader_data;
+		default_material_uniform_set = md->uniform_set;
 	}
 
 	{
-		overdraw_material_shader = storage->shader_allocate();
-		storage->shader_initialize(overdraw_material_shader);
-		storage->shader_set_code(overdraw_material_shader, "shader_type spatial;\nrender_mode blend_add,unshaded;\n void fragment() { ALBEDO=vec3(0.4,0.8,0.8); ALPHA=0.2; }");
-		overdraw_material = storage->material_allocate();
-		storage->material_initialize(overdraw_material);
-		storage->material_set_shader(overdraw_material, overdraw_material_shader);
+		overdraw_material_shader = material_storage->shader_allocate();
+		material_storage->shader_initialize(overdraw_material_shader);
+		// Use relatively low opacity so that more "layers" of overlapping objects can be distinguished.
+		material_storage->shader_set_code(overdraw_material_shader, R"(
+// 3D editor Overdraw debug draw mode shader (clustered).
 
-		wireframe_material_shader = storage->shader_allocate();
-		storage->shader_initialize(wireframe_material_shader);
-		storage->shader_set_code(wireframe_material_shader, "shader_type spatial;\nrender_mode wireframe,unshaded;\n void fragment() { ALBEDO=vec3(0.0,0.0,0.0); }");
-		wireframe_material = storage->material_allocate();
-		storage->material_initialize(wireframe_material);
-		storage->material_set_shader(wireframe_material, wireframe_material_shader);
+shader_type spatial;
+
+render_mode blend_add, unshaded;
+
+void fragment() {
+	ALBEDO = vec3(0.4, 0.8, 0.8);
+	ALPHA = 0.1;
+}
+)");
+		overdraw_material = material_storage->material_allocate();
+		material_storage->material_initialize(overdraw_material);
+		material_storage->material_set_shader(overdraw_material, overdraw_material_shader);
+
+		MaterialData *md = static_cast<MaterialData *>(material_storage->material_get_data(overdraw_material, RendererRD::MaterialStorage::SHADER_TYPE_3D));
+		overdraw_material_shader_ptr = md->shader_data;
+		overdraw_material_uniform_set = md->uniform_set;
 	}
 
 	{
@@ -790,7 +876,7 @@ void SceneShaderForwardClustered::init(RendererStorageRD *p_storage, const Strin
 		Vector<RD::Uniform> uniforms;
 		RD::Uniform u;
 		u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
-		u.ids.push_back(default_vec4_xform_buffer);
+		u.append_id(default_vec4_xform_buffer);
 		u.binding = 0;
 		uniforms.push_back(u);
 
@@ -803,5 +889,21 @@ void SceneShaderForwardClustered::init(RendererStorageRD *p_storage, const Strin
 		sampler.enable_compare = true;
 		sampler.compare_op = RD::COMPARE_OP_LESS;
 		shadow_sampler = RD::get_singleton()->sampler_create(sampler);
+	}
+}
+
+void SceneShaderForwardClustered::set_default_specialization_constants(const Vector<RD::PipelineSpecializationConstant> &p_constants) {
+	default_specialization_constants = p_constants;
+	for (SelfList<ShaderData> *E = shader_list.first(); E; E = E->next()) {
+		for (int i = 0; i < ShaderData::CULL_VARIANT_MAX; i++) {
+			for (int j = 0; j < RS::PRIMITIVE_MAX; j++) {
+				for (int k = 0; k < SHADER_VERSION_MAX; k++) {
+					E->self()->pipelines[i][j][k].update_specialization_constants(default_specialization_constants);
+				}
+				for (int k = 0; k < PIPELINE_COLOR_PASS_FLAG_COUNT; k++) {
+					E->self()->color_pipelines[i][j][k].update_specialization_constants(default_specialization_constants);
+				}
+			}
+		}
 	}
 }

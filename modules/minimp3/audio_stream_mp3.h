@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -41,6 +41,12 @@ class AudioStreamMP3;
 class AudioStreamPlaybackMP3 : public AudioStreamPlaybackResampled {
 	GDCLASS(AudioStreamPlaybackMP3, AudioStreamPlaybackResampled);
 
+	enum {
+		FADE_SIZE = 256
+	};
+	AudioFrame loop_fade[FADE_SIZE];
+	int loop_fade_remaining = FADE_SIZE;
+
 	mp3dec_ex_t *mp3d = nullptr;
 	uint32_t frames_mixed = 0;
 	bool active = false;
@@ -51,18 +57,20 @@ class AudioStreamPlaybackMP3 : public AudioStreamPlaybackResampled {
 	Ref<AudioStreamMP3> mp3_stream;
 
 protected:
-	virtual void _mix_internal(AudioFrame *p_buffer, int p_frames) override;
+	virtual int _mix_internal(AudioFrame *p_buffer, int p_frames) override;
 	virtual float get_stream_sampling_rate() override;
 
 public:
-	virtual void start(float p_from_pos = 0.0) override;
+	virtual void start(double p_from_pos = 0.0) override;
 	virtual void stop() override;
 	virtual bool is_playing() const override;
 
 	virtual int get_loop_count() const override; //times it looped
 
-	virtual float get_playback_position() const override;
-	virtual void seek(float p_time) override;
+	virtual double get_playback_position() const override;
+	virtual void seek(double p_time) override;
+
+	virtual void tag_used_streams() override;
 
 	AudioStreamPlaybackMP3() {}
 	~AudioStreamPlaybackMP3();
@@ -75,7 +83,7 @@ class AudioStreamMP3 : public AudioStream {
 
 	friend class AudioStreamPlaybackMP3;
 
-	void *data = nullptr;
+	PackedByteArray data;
 	uint32_t data_len = 0;
 
 	float sample_rate = 1.0;
@@ -85,23 +93,38 @@ class AudioStreamMP3 : public AudioStream {
 	float loop_offset = 0.0;
 	void clear_data();
 
+	double bpm = 0;
+	int beat_count = 0;
+	int bar_beats = 4;
+
 protected:
 	static void _bind_methods();
 
 public:
 	void set_loop(bool p_enable);
-	bool has_loop() const;
+	virtual bool has_loop() const override;
 
-	void set_loop_offset(float p_seconds);
-	float get_loop_offset() const;
+	void set_loop_offset(double p_seconds);
+	double get_loop_offset() const;
 
-	virtual Ref<AudioStreamPlayback> instance_playback() override;
+	void set_bpm(double p_bpm);
+	virtual double get_bpm() const override;
+
+	void set_beat_count(int p_beat_count);
+	virtual int get_beat_count() const override;
+
+	void set_bar_beats(int p_bar_beats);
+	virtual int get_bar_beats() const override;
+
+	virtual Ref<AudioStreamPlayback> instantiate_playback() override;
 	virtual String get_stream_name() const override;
 
 	void set_data(const Vector<uint8_t> &p_data);
 	Vector<uint8_t> get_data() const;
 
-	virtual float get_length() const override;
+	virtual double get_length() const override;
+
+	virtual bool is_monophonic() const override;
 
 	AudioStreamMP3();
 	virtual ~AudioStreamMP3();

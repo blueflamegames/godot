@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -35,7 +35,6 @@
 #include "core/templates/self_list.h"
 #include "scene/resources/shader.h"
 #include "scene/resources/texture.h"
-#include "servers/rendering/shader_language.h"
 #include "servers/rendering_server.h"
 
 class Material : public Resource {
@@ -52,10 +51,15 @@ class Material : public Resource {
 protected:
 	_FORCE_INLINE_ RID _get_material() const { return material; }
 	static void _bind_methods();
-	virtual bool _can_do_next_pass() const { return false; }
+	virtual bool _can_do_next_pass() const;
+	virtual bool _can_use_render_priority() const;
 
-	void _validate_property(PropertyInfo &property) const override;
+	void _validate_property(PropertyInfo &p_property) const;
 
+	GDVIRTUAL0RC(RID, _get_shader_rid)
+	GDVIRTUAL0RC(Shader::Mode, _get_shader_mode)
+	GDVIRTUAL0RC(bool, _can_do_next_pass)
+	GDVIRTUAL0RC(bool, _can_use_render_priority)
 public:
 	enum {
 		RENDER_PRIORITY_MAX = RS::MATERIAL_RENDER_PRIORITY_MAX,
@@ -68,9 +72,8 @@ public:
 	int get_render_priority() const;
 
 	virtual RID get_rid() const override;
-	virtual RID get_shader_rid() const = 0;
-
-	virtual Shader::Mode get_shader_mode() const = 0;
+	virtual RID get_shader_rid() const;
+	virtual Shader::Mode get_shader_mode() const;
 	Material();
 	virtual ~Material();
 };
@@ -79,18 +82,21 @@ class ShaderMaterial : public Material {
 	GDCLASS(ShaderMaterial, Material);
 	Ref<Shader> shader;
 
+	HashMap<StringName, Variant> param_cache;
+
 protected:
 	bool _set(const StringName &p_name, const Variant &p_value);
 	bool _get(const StringName &p_name, Variant &r_ret) const;
 	void _get_property_list(List<PropertyInfo> *p_list) const;
-	bool property_can_revert(const String &p_name);
-	Variant property_get_revert(const String &p_name);
+	bool _property_can_revert(const StringName &p_name) const;
+	bool _property_get_revert(const StringName &p_name, Variant &r_property) const;
 
 	static void _bind_methods();
 
 	void get_argument_options(const StringName &p_function, int p_idx, List<String> *r_options) const override;
 
 	virtual bool _can_do_next_pass() const override;
+	virtual bool _can_use_render_priority() const override;
 
 	void _shader_changed();
 
@@ -98,8 +104,8 @@ public:
 	void set_shader(const Ref<Shader> &p_shader);
 	Ref<Shader> get_shader() const;
 
-	void set_shader_param(const StringName &p_param, const Variant &p_value);
-	Variant get_shader_param(const StringName &p_param) const;
+	void set_shader_parameter(const StringName &p_param, const Variant &p_value);
+	Variant get_shader_parameter(const StringName &p_param) const;
 
 	virtual Shader::Mode get_shader_mode() const override;
 
@@ -235,6 +241,8 @@ public:
 		FLAG_USE_TEXTURE_REPEAT,
 		FLAG_INVERT_HEIGHTMAP,
 		FLAG_SUBSURFACE_MODE_SKIN,
+		FLAG_PARTICLE_TRAILS_MODE,
+		FLAG_ALBEDO_TEXTURE_MSDF,
 		FLAG_MAX
 	};
 
@@ -242,15 +250,12 @@ public:
 		DIFFUSE_BURLEY,
 		DIFFUSE_LAMBERT,
 		DIFFUSE_LAMBERT_WRAP,
-		DIFFUSE_OREN_NAYAR,
 		DIFFUSE_TOON,
 		DIFFUSE_MAX
 	};
 
 	enum SpecularMode {
 		SPECULAR_SCHLICK_GGX,
-		SPECULAR_BLINN,
-		SPECULAR_PHONG,
 		SPECULAR_TOON,
 		SPECULAR_DISABLED,
 		SPECULAR_MAX
@@ -305,20 +310,22 @@ private:
 		uint64_t roughness_channel : get_num_bits(TEXTURE_CHANNEL_MAX - 1);
 		uint64_t emission_op : get_num_bits(EMISSION_OP_MAX - 1);
 		uint64_t distance_fade : get_num_bits(DISTANCE_FADE_MAX - 1);
-
-		// flag bitfield
-		uint64_t feature_mask : FEATURE_MAX - 1;
-		uint64_t flags : FLAG_MAX - 1;
-
 		// booleans
 		uint64_t deep_parallax : 1;
 		uint64_t grow : 1;
 		uint64_t proximity_fade : 1;
 
+		// flag bitfield
+		uint32_t feature_mask;
+		uint32_t flags;
+
 		MaterialKey() {
 			memset(this, 0, sizeof(MaterialKey));
 		}
 
+		static uint32_t hash(const MaterialKey &p_key) {
+			return hash_djb2_buffer((const uint8_t *)&p_key, sizeof(MaterialKey));
+		}
 		bool operator==(const MaterialKey &p_key) const {
 			return memcmp(this, &p_key, sizeof(MaterialKey)) == 0;
 		}
@@ -333,7 +340,7 @@ private:
 		int users = 0;
 	};
 
-	static Map<MaterialKey, ShaderData> shader_map;
+	static HashMap<MaterialKey, ShaderData, MaterialKey> shader_map;
 
 	MaterialKey current_key;
 
@@ -385,12 +392,11 @@ private:
 		StringName rim;
 		StringName rim_tint;
 		StringName clearcoat;
-		StringName clearcoat_gloss;
+		StringName clearcoat_roughness;
 		StringName anisotropy;
 		StringName heightmap_scale;
 		StringName subsurface_scattering_strength;
 		StringName transmittance_color;
-		StringName transmittance_curve;
 		StringName transmittance_depth;
 		StringName transmittance_boost;
 		StringName backlight;
@@ -410,6 +416,8 @@ private:
 		StringName uv2_blend_sharpness;
 		StringName grow;
 		StringName proximity_fade_distance;
+		StringName msdf_pixel_range;
+		StringName msdf_outline_size;
 		StringName distance_fade_min;
 		StringName distance_fade_max;
 		StringName ao_light_affect;
@@ -440,40 +448,41 @@ private:
 	_FORCE_INLINE_ void _queue_shader_change();
 	_FORCE_INLINE_ bool _is_shader_dirty() const;
 
+	bool is_initialized = false;
 	bool orm;
 
 	Color albedo;
-	float specular;
-	float metallic;
-	float roughness;
+	float specular = 0.0f;
+	float metallic = 0.0f;
+	float roughness = 0.0f;
 	Color emission;
-	float emission_energy;
-	float normal_scale;
-	float rim;
-	float rim_tint;
-	float clearcoat;
-	float clearcoat_gloss;
-	float anisotropy;
-	float heightmap_scale;
-	float subsurface_scattering_strength;
-	float transmittance_amount;
+	float emission_energy_multiplier = 1.0f;
+	float emission_intensity = 1000.0f; // In nits, equivalent to indoor lighting.
+	float normal_scale = 0.0f;
+	float rim = 0.0f;
+	float rim_tint = 0.0f;
+	float clearcoat = 0.0f;
+	float clearcoat_roughness = 0.0f;
+	float anisotropy = 0.0f;
+	float heightmap_scale = 0.0f;
+	float subsurface_scattering_strength = 0.0f;
+	float transmittance_amount = 0.0f;
 	Color transmittance_color;
-	float transmittance_depth;
-	float transmittance_curve;
-	float transmittance_boost;
+	float transmittance_depth = 0.0f;
+	float transmittance_boost = 0.0f;
 
 	Color backlight;
-	float refraction;
-	float point_size;
-	float alpha_scissor_threshold;
-	float alpha_hash_scale;
-	float alpha_antialiasing_edge;
+	float refraction = 0.0f;
+	float point_size = 0.0f;
+	float alpha_scissor_threshold = 0.0f;
+	float alpha_hash_scale = 0.0f;
+	float alpha_antialiasing_edge = 0.0f;
 	bool grow_enabled = false;
-	float ao_light_affect;
-	float grow;
-	int particles_anim_h_frames;
-	int particles_anim_v_frames;
-	bool particles_anim_loop;
+	float ao_light_affect = 0.0f;
+	float grow = 0.0f;
+	int particles_anim_h_frames = 0;
+	int particles_anim_v_frames = 0;
+	bool particles_anim_loop = false;
 	Transparency transparency = TRANSPARENCY_DISABLED;
 	ShadingMode shading_mode = SHADING_MODE_PER_PIXEL;
 
@@ -481,26 +490,29 @@ private:
 
 	Vector3 uv1_scale;
 	Vector3 uv1_offset;
-	float uv1_triplanar_sharpness;
+	float uv1_triplanar_sharpness = 0.0f;
 
 	Vector3 uv2_scale;
 	Vector3 uv2_offset;
-	float uv2_triplanar_sharpness;
+	float uv2_triplanar_sharpness = 0.0f;
 
 	DetailUV detail_uv = DETAIL_UV_1;
 
 	bool deep_parallax = false;
-	int deep_parallax_min_layers;
-	int deep_parallax_max_layers;
+	int deep_parallax_min_layers = 0;
+	int deep_parallax_max_layers = 0;
 	bool heightmap_parallax_flip_tangent = false;
 	bool heightmap_parallax_flip_binormal = false;
 
 	bool proximity_fade_enabled = false;
-	float proximity_fade_distance;
+	float proximity_fade_distance = 0.0f;
+
+	float msdf_pixel_range = 4.f;
+	float msdf_outline_size = 0.f;
 
 	DistanceFadeMode distance_fade = DISTANCE_FADE_DISABLED;
-	float distance_fade_max_distance;
-	float distance_fade_min_distance;
+	float distance_fade_max_distance = 0.0f;
+	float distance_fade_min_distance = 0.0f;
 
 	BlendMode blend_mode = BLEND_MODE_MIX;
 	BlendMode detail_blend_mode = BLEND_MODE_MIX;
@@ -525,16 +537,15 @@ private:
 
 	_FORCE_INLINE_ void _validate_feature(const String &text, Feature feature, PropertyInfo &property) const;
 
-	static const int MAX_MATERIALS_FOR_2D = 128;
-
-	static Ref<StandardMaterial3D> materials_for_2d[MAX_MATERIALS_FOR_2D]; //used by Sprite3D and other stuff
+	static HashMap<uint64_t, Ref<StandardMaterial3D>> materials_for_2d; //used by Sprite3D, Label3D and other stuff
 
 	void _validate_high_end(const String &text, PropertyInfo &property) const;
 
 protected:
 	static void _bind_methods();
-	void _validate_property(PropertyInfo &property) const override;
+	void _validate_property(PropertyInfo &p_property) const;
 	virtual bool _can_do_next_pass() const override { return true; }
+	virtual bool _can_use_render_priority() const override { return true; }
 
 public:
 	void set_albedo(const Color &p_albedo);
@@ -552,8 +563,11 @@ public:
 	void set_emission(const Color &p_emission);
 	Color get_emission() const;
 
-	void set_emission_energy(float p_emission_energy);
-	float get_emission_energy() const;
+	void set_emission_energy_multiplier(float p_emission_energy_multiplier);
+	float get_emission_energy_multiplier() const;
+
+	void set_emission_intensity(float p_emission_intensity);
+	float get_emission_intensity() const;
 
 	void set_normal_scale(float p_normal_scale);
 	float get_normal_scale() const;
@@ -570,8 +584,8 @@ public:
 	void set_clearcoat(float p_clearcoat);
 	float get_clearcoat() const;
 
-	void set_clearcoat_gloss(float p_clearcoat_gloss);
-	float get_clearcoat_gloss() const;
+	void set_clearcoat_roughness(float p_clearcoat_roughness);
+	float get_clearcoat_roughness() const;
 
 	void set_anisotropy(float p_anisotropy);
 	float get_anisotropy() const;
@@ -602,9 +616,6 @@ public:
 
 	void set_transmittance_depth(float p_depth);
 	float get_transmittance_depth() const;
-
-	void set_transmittance_curve(float p_curve);
-	float get_transmittance_curve() const;
 
 	void set_transmittance_boost(float p_boost);
 	float get_transmittance_boost() const;
@@ -708,11 +719,17 @@ public:
 
 	void set_on_top_of_alpha();
 
-	void set_proximity_fade(bool p_enable);
+	void set_proximity_fade_enabled(bool p_enable);
 	bool is_proximity_fade_enabled() const;
 
 	void set_proximity_fade_distance(float p_distance);
 	float get_proximity_fade_distance() const;
+
+	void set_msdf_pixel_range(float p_range);
+	float get_msdf_pixel_range() const;
+
+	void set_msdf_outline_size(float p_size);
+	float get_msdf_outline_size() const;
 
 	void set_distance_fade(DistanceFadeMode p_mode);
 	DistanceFadeMode get_distance_fade() const;
@@ -739,7 +756,7 @@ public:
 	static void finish_shaders();
 	static void flush_changes();
 
-	static RID get_material_rid_for_2d(bool p_shaded, bool p_transparent, bool p_double_sided, bool p_cut_alpha, bool p_opaque_prepass, bool p_billboard = false, bool p_billboard_y = false);
+	static Ref<Material> get_material_for_2d(bool p_shaded, bool p_transparent, bool p_double_sided, bool p_cut_alpha, bool p_opaque_prepass, bool p_billboard = false, bool p_billboard_y = false, bool p_msdf = false, bool p_no_depth = false, bool p_fixed_size = false, TextureFilter p_filter = TEXTURE_FILTER_LINEAR_WITH_MIPMAPS, RID *r_shader_rid = nullptr);
 
 	virtual RID get_shader_rid() const override;
 
@@ -787,6 +804,13 @@ public:
 			BaseMaterial3D(true) {}
 };
 
+class PlaceholderMaterial : public Material {
+	GDCLASS(PlaceholderMaterial, Material)
+public:
+	virtual RID get_shader_rid() const override { return RID(); }
+	virtual Shader::Mode get_shader_mode() const override { return Shader::MODE_CANVAS_ITEM; }
+};
+
 //////////////////////
 
-#endif
+#endif // MATERIAL_H

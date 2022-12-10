@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -92,9 +92,9 @@ public:
 	void set_visible_instance_count(int p_count);
 	int get_visible_instance_count() const;
 
-	void set_instance_transform(int p_instance, const Transform &p_transform);
+	void set_instance_transform(int p_instance, const Transform3D &p_transform);
 	void set_instance_transform_2d(int p_instance, const Transform2D &p_transform);
-	Transform get_instance_transform(int p_instance) const;
+	Transform3D get_instance_transform(int p_instance) const;
 	Transform2D get_instance_transform_2d(int p_instance) const;
 
 	void set_instance_color(int p_instance, const Color &p_color);
@@ -113,4 +113,4 @@ public:
 
 VARIANT_ENUM_CAST(MultiMesh::TransformFormat);
 
-#endif // MULTI_MESH_H
+#endif // MULTIMESH_H

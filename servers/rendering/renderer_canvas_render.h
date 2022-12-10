@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -28,10 +28,10 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 
-#ifndef RENDERINGSERVERCANVASRENDER_H
-#define RENDERINGSERVERCANVASRENDER_H
+#ifndef RENDERER_CANVAS_RENDER_H
+#define RENDERER_CANVAS_RENDER_H
 
-#include "servers/rendering/renderer_storage.h"
+#include "servers/rendering_server.h"
 
 class RendererCanvasRender {
 public:
@@ -45,6 +45,8 @@ public:
 		CANVAS_RECT_TRANSPOSE = 16,
 		CANVAS_RECT_CLIP_UV = 32,
 		CANVAS_RECT_IS_GROUP = 64,
+		CANVAS_RECT_MSDF = 128,
+		CANVAS_RECT_LCD = 256,
 	};
 
 	struct Light {
@@ -76,15 +78,15 @@ public:
 		Rect2 rect_cache;
 		Transform2D xform_cache;
 		float radius_cache; //used for shadow far plane
-		//CameraMatrix shadow_matrix_cache;
+		//Projection shadow_matrix_cache;
 
 		Transform2D light_shader_xform;
 		//Vector2 light_shader_pos;
 
-		Light *shadows_next_ptr;
-		Light *filter_next_ptr;
-		Light *next_ptr;
-		Light *directional_next_ptr;
+		Light *shadows_next_ptr = nullptr;
+		Light *filter_next_ptr = nullptr;
+		Light *next_ptr = nullptr;
+		Light *directional_next_ptr = nullptr;
 
 		RID light_internal;
 		uint64_t version;
@@ -166,7 +168,7 @@ public:
 				MAX_SIZE = 4096
 			};
 			uint32_t usage;
-			uint8_t *memory;
+			uint8_t *memory = nullptr;
 		};
 
 		struct Command {
@@ -180,9 +182,10 @@ public:
 				TYPE_PARTICLES,
 				TYPE_TRANSFORM,
 				TYPE_CLIP_IGNORE,
+				TYPE_ANIMATION_SLICE,
 			};
 
-			Command *next;
+			Command *next = nullptr;
 			Type type;
 			virtual ~Command() {}
 		};
@@ -191,12 +194,16 @@ public:
 			Rect2 rect;
 			Color modulate;
 			Rect2 source;
-			uint8_t flags;
+			uint16_t flags;
+			float outline;
+			float px_range;
 
 			RID texture;
 
 			CommandRect() {
 				flags = 0;
+				outline = 0;
+				px_range = 1;
 				type = TYPE_RECT;
 			}
 		};
@@ -246,10 +253,12 @@ public:
 			RID mesh;
 			Transform2D transform;
 			Color modulate;
+			RID mesh_instance;
 
 			RID texture;
 
 			CommandMesh() { type = TYPE_MESH; }
+			~CommandMesh();
 		};
 
 		struct CommandMultiMesh : public Command {
@@ -262,7 +271,6 @@ public:
 
 		struct CommandParticles : public Command {
 			RID particles;
-
 			RID texture;
 
 			CommandParticles() { type = TYPE_PARTICLES; }
@@ -281,9 +289,20 @@ public:
 			}
 		};
 
+		struct CommandAnimationSlice : public Command {
+			double animation_length = 0;
+			double slice_begin = 0;
+			double slice_end = 0;
+			double offset = 0;
+
+			CommandAnimationSlice() {
+				type = TYPE_ANIMATION_SLICE;
+			}
+		};
+
 		struct ViewportRender {
-			RenderingServer *owner;
-			void *udata;
+			RenderingServer *owner = nullptr;
+			void *udata = nullptr;
 			Rect2 rect;
 		};
 
@@ -311,134 +330,37 @@ public:
 		RID material;
 		RID skeleton;
 
-		Item *next;
+		Item *next = nullptr;
 
 		struct CopyBackBuffer {
 			Rect2 rect;
 			Rect2 screen_rect;
 			bool full;
 		};
-		CopyBackBuffer *copy_back_buffer;
+		CopyBackBuffer *copy_back_buffer = nullptr;
 
 		Color final_modulate;
 		Transform2D final_transform;
 		Rect2 final_clip_rect;
-		Item *final_clip_owner;
-		Item *material_owner;
-		Item *canvas_group_owner;
-		ViewportRender *vp_render;
+		Item *final_clip_owner = nullptr;
+		Item *material_owner = nullptr;
+		Item *canvas_group_owner = nullptr;
+		ViewportRender *vp_render = nullptr;
 		bool distance_field;
 		bool light_masked;
 
 		Rect2 global_rect_cache;
 
-		const Rect2 &get_rect() const {
-			if (custom_rect || (!rect_dirty && !update_when_visible)) {
-				return rect;
-			}
+		const Rect2 &get_rect() const;
 
-			//must update rect
-
-			if (commands == nullptr) {
-				rect = Rect2();
-				rect_dirty = false;
-				return rect;
-			}
-
-			Transform2D xf;
-			bool found_xform = false;
-			bool first = true;
-
-			const Item::Command *c = commands;
-
-			while (c) {
-				Rect2 r;
-
-				switch (c->type) {
-					case Item::Command::TYPE_RECT: {
-						const Item::CommandRect *crect = static_cast<const Item::CommandRect *>(c);
-						r = crect->rect;
-
-					} break;
-					case Item::Command::TYPE_NINEPATCH: {
-						const Item::CommandNinePatch *style = static_cast<const Item::CommandNinePatch *>(c);
-						r = style->rect;
-					} break;
-
-					case Item::Command::TYPE_POLYGON: {
-						const Item::CommandPolygon *polygon = static_cast<const Item::CommandPolygon *>(c);
-						r = polygon->polygon.rect_cache;
-					} break;
-					case Item::Command::TYPE_PRIMITIVE: {
-						const Item::CommandPrimitive *primitive = static_cast<const Item::CommandPrimitive *>(c);
-						for (uint32_t j = 0; j < primitive->point_count; j++) {
-							if (j == 0) {
-								r.position = primitive->points[0];
-							} else {
-								r.expand_to(primitive->points[j]);
-							}
-						}
-					} break;
-					case Item::Command::TYPE_MESH: {
-						const Item::CommandMesh *mesh = static_cast<const Item::CommandMesh *>(c);
-						AABB aabb = RendererStorage::base_singleton->mesh_get_aabb(mesh->mesh, RID());
-
-						r = Rect2(aabb.position.x, aabb.position.y, aabb.size.x, aabb.size.y);
-
-					} break;
-					case Item::Command::TYPE_MULTIMESH: {
-						const Item::CommandMultiMesh *multimesh = static_cast<const Item::CommandMultiMesh *>(c);
-						AABB aabb = RendererStorage::base_singleton->multimesh_get_aabb(multimesh->multimesh);
-
-						r = Rect2(aabb.position.x, aabb.position.y, aabb.size.x, aabb.size.y);
-
-					} break;
-					case Item::Command::TYPE_PARTICLES: {
-						const Item::CommandParticles *particles_cmd = static_cast<const Item::CommandParticles *>(c);
-						if (particles_cmd->particles.is_valid()) {
-							AABB aabb = RendererStorage::base_singleton->particles_get_aabb(particles_cmd->particles);
-							r = Rect2(aabb.position.x, aabb.position.y, aabb.size.x, aabb.size.y);
-						}
-
-					} break;
-					case Item::Command::TYPE_TRANSFORM: {
-						const Item::CommandTransform *transform = static_cast<const Item::CommandTransform *>(c);
-						xf = transform->xform;
-						found_xform = true;
-						[[fallthrough]];
-					}
-					default: {
-						c = c->next;
-						continue;
-					}
-				}
-
-				if (found_xform) {
-					r = xf.xform(r);
-					found_xform = false;
-				}
-
-				if (first) {
-					rect = r;
-					first = false;
-				} else {
-					rect = rect.merge(r);
-				}
-				c = c->next;
-			}
-
-			rect_dirty = false;
-			return rect;
-		}
-
-		Command *commands;
-		Command *last_command;
+		Command *commands = nullptr;
+		Command *last_command = nullptr;
 		Vector<CommandBlock> blocks;
 		uint32_t current_block;
 
 		template <class T>
 		T *alloc_command() {
-			T *command;
+			T *command = nullptr;
 			if (commands == nullptr) {
 				// As the most common use case of canvas items is to
 				// use only one command, the first is done with it's
@@ -554,7 +476,6 @@ public:
 	};
 
 	virtual void canvas_render_items(RID p_to_render_target, Item *p_item_list, const Color &p_modulate, Light *p_light_list, Light *p_directional_list, const Transform2D &p_canvas_transform, RS::CanvasItemTextureFilter p_default_filter, RS::CanvasItemTextureRepeat p_default_repeat, bool p_snap_2d_vertices_to_pixel, bool &r_sdf_used) = 0;
-	virtual void canvas_debug_viewport_shadows(Light *p_lights_with_shadow) = 0;
 
 	struct LightOccluderInstance {
 		bool enabled;
@@ -568,7 +489,7 @@ public:
 		bool sdf_collision;
 		RS::CanvasOccluderPolygonCullMode cull_cache;
 
-		LightOccluderInstance *next;
+		LightOccluderInstance *next = nullptr;
 
 		LightOccluderInstance() {
 			enabled = true;
@@ -592,8 +513,6 @@ public:
 	virtual void occluder_polygon_set_cull_mode(RID p_occluder, RS::CanvasOccluderPolygonCullMode p_mode) = 0;
 	virtual void set_shadow_texture_size(int p_size) = 0;
 
-	virtual void draw_window_margins(int *p_margins, RID *p_margin_textures) = 0;
-
 	virtual bool free(RID p_rid) = 0;
 	virtual void update() = 0;
 
@@ -601,4 +520,4 @@ public:
 	virtual ~RendererCanvasRender() {}
 };
 
-#endif // RENDERINGSERVERCANVASRENDER_H
+#endif // RENDERER_CANVAS_RENDER_H

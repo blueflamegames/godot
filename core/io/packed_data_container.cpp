@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -100,11 +100,12 @@ Variant PackedDataContainer::_iter_get_ofs(const Variant &p_iter, uint32_t p_off
 }
 
 Variant PackedDataContainer::_get_at_ofs(uint32_t p_ofs, const uint8_t *p_buf, bool &err) const {
+	ERR_FAIL_COND_V(p_ofs + 4 > (uint32_t)data.size(), Variant());
 	uint32_t type = decode_uint32(p_buf + p_ofs);
 
 	if (type == TYPE_ARRAY || type == TYPE_DICT) {
 		Ref<PackedDataContainerRef> pdcr = memnew(PackedDataContainerRef);
-		Ref<PackedDataContainer> pdc = Ref<PackedDataContainer>((PackedDataContainer *)this);
+		Ref<PackedDataContainer> pdc = Ref<PackedDataContainer>(const_cast<PackedDataContainer *>(this));
 
 		pdcr->from = pdc;
 		pdcr->offset = p_ofs;
@@ -122,7 +123,9 @@ Variant PackedDataContainer::_get_at_ofs(uint32_t p_ofs, const uint8_t *p_buf, b
 }
 
 uint32_t PackedDataContainer::_type_at_ofs(uint32_t p_ofs) const {
+	ERR_FAIL_COND_V(p_ofs + 4 > (uint32_t)data.size(), 0);
 	const uint8_t *rd = data.ptr();
+	ERR_FAIL_COND_V(!rd, 0);
 	const uint8_t *r = &rd[p_ofs];
 	uint32_t type = decode_uint32(r);
 
@@ -130,6 +133,7 @@ uint32_t PackedDataContainer::_type_at_ofs(uint32_t p_ofs) const {
 }
 
 int PackedDataContainer::_size(uint32_t p_ofs) const {
+	ERR_FAIL_COND_V(p_ofs + 4 > (uint32_t)data.size(), 0);
 	const uint8_t *rd = data.ptr();
 	ERR_FAIL_COND_V(!rd, 0);
 	const uint8_t *r = &rd[p_ofs];
@@ -148,7 +152,12 @@ int PackedDataContainer::_size(uint32_t p_ofs) const {
 }
 
 Variant PackedDataContainer::_key_at_ofs(uint32_t p_ofs, const Variant &p_key, bool &err) const {
+	ERR_FAIL_COND_V(p_ofs + 4 > (uint32_t)data.size(), Variant());
 	const uint8_t *rd = data.ptr();
+	if (!rd) {
+		err = true;
+		ERR_FAIL_COND_V(!rd, Variant());
+	}
 	const uint8_t *r = &rd[p_ofs];
 	uint32_t type = decode_uint32(r);
 
@@ -201,7 +210,7 @@ Variant PackedDataContainer::_key_at_ofs(uint32_t p_ofs, const Variant &p_key, b
 	}
 }
 
-uint32_t PackedDataContainer::_pack(const Variant &p_data, Vector<uint8_t> &tmpdata, Map<String, uint32_t> &string_cache) {
+uint32_t PackedDataContainer::_pack(const Variant &p_data, Vector<uint8_t> &tmpdata, HashMap<String, uint32_t> &string_cache) {
 	switch (p_data.get_type()) {
 		case Variant::STRING: {
 			String s = p_data;
@@ -222,10 +231,10 @@ uint32_t PackedDataContainer::_pack(const Variant &p_data, Vector<uint8_t> &tmpd
 		case Variant::VECTOR3:
 		case Variant::TRANSFORM2D:
 		case Variant::PLANE:
-		case Variant::QUAT:
+		case Variant::QUATERNION:
 		case Variant::AABB:
 		case Variant::BASIS:
-		case Variant::TRANSFORM:
+		case Variant::TRANSFORM3D:
 		case Variant::PACKED_BYTE_ARRAY:
 		case Variant::PACKED_INT32_ARRAY:
 		case Variant::PACKED_INT64_ARRAY:
@@ -263,21 +272,21 @@ uint32_t PackedDataContainer::_pack(const Variant &p_data, Vector<uint8_t> &tmpd
 			d.get_key_list(&keys);
 			List<DictKey> sortk;
 
-			for (List<Variant>::Element *E = keys.front(); E; E = E->next()) {
+			for (const Variant &key : keys) {
 				DictKey dk;
-				dk.hash = E->get().hash();
-				dk.key = E->get();
+				dk.hash = key.hash();
+				dk.key = key;
 				sortk.push_back(dk);
 			}
 
 			sortk.sort();
 
 			int idx = 0;
-			for (List<DictKey>::Element *E = sortk.front(); E; E = E->next()) {
-				encode_uint32(E->get().hash, &tmpdata.write[pos + 8 + idx * 12 + 0]);
-				uint32_t ofs = _pack(E->get().key, tmpdata, string_cache);
+			for (const DictKey &E : sortk) {
+				encode_uint32(E.hash, &tmpdata.write[pos + 8 + idx * 12 + 0]);
+				uint32_t ofs = _pack(E.key, tmpdata, string_cache);
 				encode_uint32(ofs, &tmpdata.write[pos + 8 + idx * 12 + 4]);
-				ofs = _pack(d[E->get().key], tmpdata, string_cache);
+				ofs = _pack(d[E.key], tmpdata, string_cache);
 				encode_uint32(ofs, &tmpdata.write[pos + 8 + idx * 12 + 8]);
 				idx++;
 			}
@@ -312,12 +321,12 @@ uint32_t PackedDataContainer::_pack(const Variant &p_data, Vector<uint8_t> &tmpd
 
 Error PackedDataContainer::pack(const Variant &p_data) {
 	Vector<uint8_t> tmpdata;
-	Map<String, uint32_t> string_cache;
+	HashMap<String, uint32_t> string_cache;
 	_pack(p_data, tmpdata, string_cache);
 	datalen = tmpdata.size();
 	data.resize(tmpdata.size());
 	uint8_t *w = data.ptrw();
-	copymem(w, tmpdata.ptr(), tmpdata.size());
+	memcpy(w, tmpdata.ptr(), tmpdata.size());
 
 	return OK;
 }
@@ -344,7 +353,7 @@ Variant PackedDataContainer::_iter_get(const Variant &p_iter) {
 }
 
 void PackedDataContainer::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("_set_data"), &PackedDataContainer::_set_data);
+	ClassDB::bind_method(D_METHOD("_set_data", "data"), &PackedDataContainer::_set_data);
 	ClassDB::bind_method(D_METHOD("_get_data"), &PackedDataContainer::_get_data);
 	ClassDB::bind_method(D_METHOD("_iter_init"), &PackedDataContainer::_iter_init);
 	ClassDB::bind_method(D_METHOD("_iter_get"), &PackedDataContainer::_iter_get);

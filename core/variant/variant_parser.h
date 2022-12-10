@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,41 +31,57 @@
 #ifndef VARIANT_PARSER_H
 #define VARIANT_PARSER_H
 
+#include "core/io/file_access.h"
 #include "core/io/resource.h"
-#include "core/os/file_access.h"
 #include "core/variant/variant.h"
 
 class VariantParser {
 public:
 	struct Stream {
-		virtual char32_t get_char() = 0;
-		virtual bool is_utf8() const = 0;
-		virtual bool is_eof() const = 0;
+	private:
+		enum { READAHEAD_SIZE = 2048 };
+		char32_t readahead_buffer[READAHEAD_SIZE];
+		uint32_t readahead_pointer = 0;
+		uint32_t readahead_filled = 0;
+		bool eof = false;
 
+	protected:
+		virtual uint32_t _read_buffer(char32_t *p_buffer, uint32_t p_num_chars) = 0;
+
+	public:
 		char32_t saved = 0;
+
+		char32_t get_char();
+		virtual bool is_utf8() const = 0;
+		bool is_eof() const { return eof; }
 
 		Stream() {}
 		virtual ~Stream() {}
 	};
 
 	struct StreamFile : public Stream {
-		FileAccess *f = nullptr;
+	protected:
+		virtual uint32_t _read_buffer(char32_t *p_buffer, uint32_t p_num_chars) override;
 
-		virtual char32_t get_char();
-		virtual bool is_utf8() const;
-		virtual bool is_eof() const;
+	public:
+		Ref<FileAccess> f;
+
+		virtual bool is_utf8() const override;
 
 		StreamFile() {}
 	};
 
 	struct StreamString : public Stream {
 		String s;
+
+	private:
 		int pos = 0;
 
-		virtual char32_t get_char();
-		virtual bool is_utf8() const;
-		virtual bool is_eof() const;
+	protected:
+		virtual uint32_t _read_buffer(char32_t *p_buffer, uint32_t p_num_chars) override;
 
+	public:
+		virtual bool is_utf8() const override;
 		StreamString() {}
 	};
 
@@ -73,9 +89,9 @@ public:
 
 	struct ResourceParser {
 		void *userdata = nullptr;
-		ParseResourceFunc func;
-		ParseResourceFunc ext_func;
-		ParseResourceFunc sub_func;
+		ParseResourceFunc func = nullptr;
+		ParseResourceFunc ext_func = nullptr;
+		ParseResourceFunc sub_func = nullptr;
 	};
 
 	enum TokenType {
@@ -113,7 +129,7 @@ public:
 
 	struct Tag {
 		String name;
-		Map<String, Variant> fields;
+		HashMap<String, Variant> fields;
 	};
 
 private:
@@ -138,9 +154,9 @@ public:
 class VariantWriter {
 public:
 	typedef Error (*StoreStringFunc)(void *ud, const String &p_string);
-	typedef String (*EncodeResourceFunc)(void *ud, const RES &p_resource);
+	typedef String (*EncodeResourceFunc)(void *ud, const Ref<Resource> &p_resource);
 
-	static Error write(const Variant &p_variant, StoreStringFunc p_store_string_func, void *p_store_string_ud, EncodeResourceFunc p_encode_res_func, void *p_encode_res_ud);
+	static Error write(const Variant &p_variant, StoreStringFunc p_store_string_func, void *p_store_string_ud, EncodeResourceFunc p_encode_res_func, void *p_encode_res_ud, int recursion_count = 0);
 	static Error write_to_string(const Variant &p_variant, String &r_string, EncodeResourceFunc p_encode_res_func = nullptr, void *p_encode_res_ud = nullptr);
 };
 

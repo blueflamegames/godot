@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -45,43 +45,53 @@ private:
 		bool line_only = false;
 	};
 	Vector<ColorRegion> color_regions;
-	Map<int, int> color_region_cache;
+	HashMap<int, int> color_region_cache;
 
-	Dictionary keywords;
-	Dictionary member_keywords;
+	HashMap<StringName, Color> class_names;
+	HashMap<StringName, Color> reserved_keywords;
+	HashMap<StringName, Color> member_keywords;
+	HashSet<StringName> global_functions;
 
 	enum Type {
 		NONE,
 		REGION,
 		NODE_PATH,
+		NODE_REF,
+		ANNOTATION,
+		STRING_NAME,
 		SYMBOL,
 		NUMBER,
 		FUNCTION,
+		SIGNAL,
 		KEYWORD,
 		MEMBER,
 		IDENTIFIER,
 		TYPE,
 	};
 
-	// colours
+	// Colors.
 	Color font_color;
 	Color symbol_color;
 	Color function_color;
+	Color global_function_color;
 	Color function_definition_color;
 	Color built_in_type_color;
 	Color number_color;
 	Color member_color;
 	Color node_path_color;
+	Color node_ref_color;
+	Color annotation_color;
+	Color string_name_color;
 	Color type_color;
 
 	void add_color_region(const String &p_start_key, const String &p_end_key, const Color &p_color, bool p_line_only = false);
 
 public:
 	virtual void _update_cache() override;
-	virtual Dictionary _get_line_syntax_highlighting(int p_line) override;
+	virtual Dictionary _get_line_syntax_highlighting_impl(int p_line) override;
 
 	virtual String _get_name() const override;
-	virtual Array _get_supported_languages() const override;
+	virtual PackedStringArray _get_supported_languages() const override;
 
 	virtual Ref<EditorSyntaxHighlighter> _create() const override;
 };

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -35,12 +35,10 @@
 #include "editor/debugger/editor_debugger_inspector.h"
 #include "editor/debugger/editor_debugger_node.h"
 #include "editor/debugger/editor_debugger_server.h"
-#include "editor/editor_file_dialog.h"
 #include "scene/gui/button.h"
 #include "scene/gui/margin_container.h"
 
 class Tree;
-class EditorNode;
 class LineEdit;
 class TabContainer;
 class RichTextLabel;
@@ -50,16 +48,20 @@ class TreeItem;
 class HSplitContainer;
 class ItemList;
 class EditorProfiler;
+class EditorFileDialog;
 class EditorVisualProfiler;
-class EditorNetworkProfiler;
 class EditorPerformanceProfiler;
 class SceneDebuggerTree;
 class EditorDebuggerPlugin;
+class DebugAdapterProtocol;
+class DebugAdapterParser;
 
 class ScriptEditorDebugger : public MarginContainer {
 	GDCLASS(ScriptEditorDebugger, MarginContainer);
 
 	friend class EditorDebuggerNode;
+	friend class DebugAdapterProtocol;
+	friend class DebugAdapterParser;
 
 private:
 	enum MessageType {
@@ -69,26 +71,38 @@ private:
 	};
 
 	enum ProfilerType {
-		PROFILER_NETWORK,
 		PROFILER_VISUAL,
 		PROFILER_SCRIPTS_SERVERS
 	};
 
-	AcceptDialog *msgdialog;
+	enum Actions {
+		ACTION_COPY_ERROR,
+		ACTION_OPEN_SOURCE,
+		ACTION_DELETE_BREAKPOINT,
+		ACTION_DELETE_BREAKPOINTS_IN_FILE,
+		ACTION_DELETE_ALL_BREAKPOINTS,
+	};
 
-	LineEdit *clicked_ctrl;
-	LineEdit *clicked_ctrl_type;
-	LineEdit *live_edit_root;
-	Button *le_set;
-	Button *le_clear;
-	Button *export_csv;
+	AcceptDialog *msgdialog = nullptr;
 
-	VBoxContainer *errors_tab;
-	Tree *error_tree;
-	Button *clearbutton;
-	PopupMenu *item_menu;
+	LineEdit *clicked_ctrl = nullptr;
+	LineEdit *clicked_ctrl_type = nullptr;
+	LineEdit *live_edit_root = nullptr;
+	Button *le_set = nullptr;
+	Button *le_clear = nullptr;
+	Button *export_csv = nullptr;
 
-	EditorFileDialog *file_dialog;
+	VBoxContainer *errors_tab = nullptr;
+	Tree *error_tree = nullptr;
+	Button *expand_all_button = nullptr;
+	Button *collapse_all_button = nullptr;
+	Button *clear_button = nullptr;
+	PopupMenu *item_menu = nullptr;
+
+	Tree *breakpoints_tree = nullptr;
+	PopupMenu *breakpoints_menu = nullptr;
+
+	EditorFileDialog *file_dialog = nullptr;
 	enum FileDialogPurpose {
 		SAVE_MONITORS_CSV,
 		SAVE_VRAM_CSV,
@@ -101,55 +115,50 @@ private:
 	bool skip_breakpoints_value = false;
 	Ref<Script> stack_script;
 
-	TabContainer *tabs;
+	TabContainer *tabs = nullptr;
 
-	Label *reason;
+	Label *reason = nullptr;
 
-	Button *skip_breakpoints;
-	Button *copy;
-	Button *step;
-	Button *next;
-	Button *dobreak;
-	Button *docontinue;
+	Button *skip_breakpoints = nullptr;
+	Button *copy = nullptr;
+	Button *step = nullptr;
+	Button *next = nullptr;
+	Button *dobreak = nullptr;
+	Button *docontinue = nullptr;
 	// Reference to "Remote" tab in scene tree. Needed by _live_edit_set and buttons state.
 	// Each debugger should have it's tree in the future I guess.
 	const Tree *editor_remote_tree = nullptr;
 
-	Map<int, String> profiler_signature;
+	HashMap<int, String> profiler_signature;
 
-	Tree *vmem_tree;
-	Button *vmem_refresh;
-	Button *vmem_export;
-	LineEdit *vmem_total;
+	Tree *vmem_tree = nullptr;
+	Button *vmem_refresh = nullptr;
+	Button *vmem_export = nullptr;
+	LineEdit *vmem_total = nullptr;
 
-	Tree *stack_dump;
-	EditorDebuggerInspector *inspector;
-	SceneDebuggerTree *scene_tree;
+	Tree *stack_dump = nullptr;
+	LineEdit *search = nullptr;
+	EditorDebuggerInspector *inspector = nullptr;
+	SceneDebuggerTree *scene_tree = nullptr;
 
 	Ref<RemoteDebuggerPeer> peer;
 
 	HashMap<NodePath, int> node_path_cache;
 	int last_path_id;
-	Map<String, int> res_path_cache;
+	HashMap<String, int> res_path_cache;
 
-	EditorProfiler *profiler;
-	EditorVisualProfiler *visual_profiler;
-	EditorNetworkProfiler *network_profiler;
-	EditorPerformanceProfiler *performance_profiler;
-
-	EditorNode *editor;
+	EditorProfiler *profiler = nullptr;
+	EditorVisualProfiler *visual_profiler = nullptr;
+	EditorPerformanceProfiler *performance_profiler = nullptr;
 
 	OS::ProcessID remote_pid = 0;
 	bool breaked = false;
 	bool can_debug = false;
+	bool move_to_foreground = true;
 
 	bool live_debug;
 
 	EditorDebuggerNode::CameraOverride camera_override;
-
-	Map<Ref<Script>, EditorDebuggerPlugin *> debugger_plugins;
-
-	Map<StringName, Callable> captures;
 
 	void _stack_dump_frame_selected();
 
@@ -171,7 +180,7 @@ private:
 	void _live_edit_set();
 	void _live_edit_clear();
 
-	void _method_changed(Object *p_base, const StringName &p_name, VARIANT_ARG_DECLARE);
+	void _method_changed(Object *p_base, const StringName &p_name, const Variant **p_args, int p_argcount);
 	void _property_changed(Object *p_base, const StringName &p_property, const Variant &p_value);
 
 	void _error_activated();
@@ -185,7 +194,8 @@ private:
 
 	void _clear_errors_list();
 
-	void _error_tree_item_rmb_selected(const Vector2 &p_pos);
+	void _breakpoints_item_rmb_selected(const Vector2 &p_pos, MouseButton p_button);
+	void _error_tree_item_rmb_selected(const Vector2 &p_pos, MouseButton p_button);
 	void _item_menu_id_pressed(int p_option);
 	void _tab_changed(int p_tab);
 
@@ -194,6 +204,11 @@ private:
 
 	void _clear_execution();
 	void _stop_and_notify();
+
+	void _set_breakpoint(const String &p_path, const int &p_line, const bool &p_enabled);
+	void _clear_breakpoints();
+
+	void _breakpoint_tree_clicked();
 
 protected:
 	void _notification(int p_what);
@@ -225,11 +240,16 @@ public:
 	bool is_session_active() { return peer.is_valid() && peer->is_peer_connected(); };
 	int get_remote_pid() const { return remote_pid; }
 
+	bool is_move_to_foreground() const;
+	void set_move_to_foreground(const bool &p_move_to_foreground);
+
 	int get_error_count() const { return error_count; }
 	int get_warning_count() const { return warning_count; }
 	String get_stack_script_file() const;
 	int get_stack_script_line() const;
 	int get_stack_script_frame() const;
+
+	bool request_stack_dump(const int &p_frame);
 
 	void update_tabs();
 	void clear_style();
@@ -239,7 +259,7 @@ public:
 	void set_live_debugging(bool p_enable);
 
 	void live_debug_create_node(const NodePath &p_parent, const String &p_type, const String &p_name);
-	void live_debug_instance_node(const NodePath &p_parent, const String &p_path, const String &p_name);
+	void live_debug_instantiate_node(const NodePath &p_parent, const String &p_path, const String &p_name);
 	void live_debug_remove_node(const NodePath &p_at);
 	void live_debug_remove_and_keep_node(const NodePath &p_at, ObjectID p_keep_id);
 	void live_debug_restore_node(ObjectID p_id, const NodePath &p_at, int p_at_pos);
@@ -259,16 +279,13 @@ public:
 
 	virtual Size2 get_minimum_size() const override;
 
-	void add_debugger_plugin(const Ref<Script> &p_script);
-	void remove_debugger_plugin(const Ref<Script> &p_script);
+	void add_debugger_tab(Control *p_control);
+	void remove_debugger_tab(Control *p_control);
 
 	void send_message(const String &p_message, const Array &p_args);
+	void toggle_profiler(const String &p_profiler, bool p_enable, const Array &p_data);
 
-	void register_message_capture(const StringName &p_name, const Callable &p_callable);
-	void unregister_message_capture(const StringName &p_name);
-	bool has_capture(const StringName &p_name);
-
-	ScriptEditorDebugger(EditorNode *p_editor = nullptr);
+	ScriptEditorDebugger();
 	~ScriptEditorDebugger();
 };
 

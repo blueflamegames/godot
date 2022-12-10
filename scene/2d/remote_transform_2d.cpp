@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -29,13 +29,12 @@
 /*************************************************************************/
 
 #include "remote_transform_2d.h"
-#include "scene/scene_string_names.h"
 
 void RemoteTransform2D::_update_cache() {
 	cache = ObjectID();
 	if (has_node(remote_node)) {
 		Node *node = get_node(remote_node);
-		if (!node || this == node || node->is_a_parent_of(this) || this->is_a_parent_of(node)) {
+		if (!node || this == node || node->is_ancestor_of(this) || this->is_ancestor_of(node)) {
 			return;
 		}
 
@@ -116,8 +115,8 @@ void RemoteTransform2D::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_ENTER_TREE: {
 			_update_cache();
-
 		} break;
+
 		case NOTIFICATION_TRANSFORM_CHANGED: {
 			if (!is_inside_tree()) {
 				break;
@@ -126,7 +125,6 @@ void RemoteTransform2D::_notification(int p_what) {
 			if (cache.is_valid()) {
 				_update_remote();
 			}
-
 		} break;
 	}
 }
@@ -138,7 +136,7 @@ void RemoteTransform2D::set_remote_node(const NodePath &p_remote_node) {
 		_update_remote();
 	}
 
-	update_configuration_warning();
+	update_configuration_warnings();
 }
 
 NodePath RemoteTransform2D::get_remote_node() const {
@@ -185,17 +183,14 @@ void RemoteTransform2D::force_update_cache() {
 	_update_cache();
 }
 
-String RemoteTransform2D::get_configuration_warning() const {
-	String warning = Node2D::get_configuration_warning();
+PackedStringArray RemoteTransform2D::get_configuration_warnings() const {
+	PackedStringArray warnings = Node::get_configuration_warnings();
 
 	if (!has_node(remote_node) || !Object::cast_to<Node2D>(get_node(remote_node))) {
-		if (!warning.is_empty()) {
-			warning += "\n\n";
-		}
-		warning += TTR("Path property must point to a valid Node2D node to work.");
+		warnings.push_back(RTR("Path property must point to a valid Node2D node to work."));
 	}
 
-	return warning;
+	return warnings;
 }
 
 void RemoteTransform2D::_bind_methods() {

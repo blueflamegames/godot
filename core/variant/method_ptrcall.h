@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,7 +31,6 @@
 #ifndef METHOD_PTRCALL_H
 #define METHOD_PTRCALL_H
 
-#include "core/math/transform_2d.h"
 #include "core/object/object_id.h"
 #include "core/typedefs.h"
 #include "core/variant/variant.h"
@@ -45,6 +44,7 @@ struct PtrToArg {};
 		_FORCE_INLINE_ static m_type convert(const void *p_ptr) {      \
 			return *reinterpret_cast<const m_type *>(p_ptr);           \
 		}                                                              \
+		typedef m_type EncodeT;                                        \
 		_FORCE_INLINE_ static void encode(m_type p_val, void *p_ptr) { \
 			*((m_type *)p_ptr) = p_val;                                \
 		}                                                              \
@@ -54,6 +54,7 @@ struct PtrToArg {};
 		_FORCE_INLINE_ static m_type convert(const void *p_ptr) {      \
 			return *reinterpret_cast<const m_type *>(p_ptr);           \
 		}                                                              \
+		typedef m_type EncodeT;                                        \
 		_FORCE_INLINE_ static void encode(m_type p_val, void *p_ptr) { \
 			*((m_type *)p_ptr) = p_val;                                \
 		}                                                              \
@@ -65,6 +66,7 @@ struct PtrToArg {};
 		_FORCE_INLINE_ static m_type convert(const void *p_ptr) {                 \
 			return static_cast<m_type>(*reinterpret_cast<const m_conv *>(p_ptr)); \
 		}                                                                         \
+		typedef m_conv EncodeT;                                                   \
 		_FORCE_INLINE_ static void encode(m_type p_val, void *p_ptr) {            \
 			*((m_conv *)p_ptr) = static_cast<m_conv>(p_val);                      \
 		}                                                                         \
@@ -74,6 +76,7 @@ struct PtrToArg {};
 		_FORCE_INLINE_ static m_type convert(const void *p_ptr) {                 \
 			return static_cast<m_type>(*reinterpret_cast<const m_conv *>(p_ptr)); \
 		}                                                                         \
+		typedef m_conv EncodeT;                                                   \
 		_FORCE_INLINE_ static void encode(m_type p_val, void *p_ptr) {            \
 			*((m_conv *)p_ptr) = static_cast<m_conv>(p_val);                      \
 		}                                                                         \
@@ -85,6 +88,7 @@ struct PtrToArg {};
 		_FORCE_INLINE_ static m_type convert(const void *p_ptr) {             \
 			return *reinterpret_cast<const m_type *>(p_ptr);                  \
 		}                                                                     \
+		typedef m_type EncodeT;                                               \
 		_FORCE_INLINE_ static void encode(const m_type &p_val, void *p_ptr) { \
 			*((m_type *)p_ptr) = p_val;                                       \
 		}                                                                     \
@@ -94,12 +98,13 @@ struct PtrToArg {};
 		_FORCE_INLINE_ static m_type convert(const void *p_ptr) {             \
 			return *reinterpret_cast<const m_type *>(p_ptr);                  \
 		}                                                                     \
+		typedef m_type EncodeT;                                               \
 		_FORCE_INLINE_ static void encode(const m_type &p_val, void *p_ptr) { \
 			*((m_type *)p_ptr) = p_val;                                       \
 		}                                                                     \
 	}
 
-MAKE_PTRARG(bool);
+MAKE_PTRARGCONV(bool, uint8_t);
 // Integer types.
 MAKE_PTRARGCONV(uint8_t, int64_t);
 MAKE_PTRARGCONV(int8_t, int64_t);
@@ -120,12 +125,15 @@ MAKE_PTRARG(Rect2);
 MAKE_PTRARG(Rect2i);
 MAKE_PTRARG_BY_REFERENCE(Vector3);
 MAKE_PTRARG_BY_REFERENCE(Vector3i);
+MAKE_PTRARG_BY_REFERENCE(Vector4);
+MAKE_PTRARG_BY_REFERENCE(Vector4i);
 MAKE_PTRARG(Transform2D);
+MAKE_PTRARG(Projection);
 MAKE_PTRARG_BY_REFERENCE(Plane);
-MAKE_PTRARG(Quat);
+MAKE_PTRARG(Quaternion);
 MAKE_PTRARG_BY_REFERENCE(AABB);
 MAKE_PTRARG_BY_REFERENCE(Basis);
-MAKE_PTRARG_BY_REFERENCE(Transform);
+MAKE_PTRARG_BY_REFERENCE(Transform3D);
 MAKE_PTRARG_BY_REFERENCE(Color);
 MAKE_PTRARG(StringName);
 MAKE_PTRARG(NodePath);
@@ -153,7 +161,7 @@ struct PtrToArg<T *> {
 	_FORCE_INLINE_ static T *convert(const void *p_ptr) {
 		return const_cast<T *>(reinterpret_cast<const T *>(p_ptr));
 	}
-
+	typedef Object *EncodeT;
 	_FORCE_INLINE_ static void encode(T *p_var, void *p_ptr) {
 		*((T **)p_ptr) = p_var;
 	}
@@ -164,7 +172,7 @@ struct PtrToArg<const T *> {
 	_FORCE_INLINE_ static const T *convert(const void *p_ptr) {
 		return reinterpret_cast<const T *>(p_ptr);
 	}
-
+	typedef const Object *EncodeT;
 	_FORCE_INLINE_ static void encode(T *p_var, void *p_ptr) {
 		*((T **)p_ptr) = p_var;
 	}
@@ -177,7 +185,7 @@ struct PtrToArg<ObjectID> {
 	_FORCE_INLINE_ static const ObjectID convert(const void *p_ptr) {
 		return ObjectID(*reinterpret_cast<const uint64_t *>(p_ptr));
 	}
-
+	typedef uint64_t EncodeT;
 	_FORCE_INLINE_ static void encode(const ObjectID &p_val, void *p_ptr) {
 		*((uint64_t *)p_ptr) = p_val;
 	}
@@ -185,6 +193,7 @@ struct PtrToArg<ObjectID> {
 
 // This is for the special cases used by Variant.
 
+// No EncodeT because direct pointer conversion not possible.
 #define MAKE_VECARG(m_type)                                                              \
 	template <>                                                                          \
 	struct PtrToArg<Vector<m_type>> {                                                    \
@@ -230,6 +239,7 @@ struct PtrToArg<ObjectID> {
 		}                                                                                \
 	}
 
+// No EncodeT because direct pointer conversion not possible.
 #define MAKE_VECARG_ALT(m_type, m_type_alt)                                              \
 	template <>                                                                          \
 	struct PtrToArg<Vector<m_type_alt>> {                                                \
@@ -279,6 +289,7 @@ MAKE_VECARG_ALT(String, StringName);
 
 // For stuff that gets converted to Array vectors.
 
+// No EncodeT because direct pointer conversion not possible.
 #define MAKE_VECARR(m_type)                                                    \
 	template <>                                                                \
 	struct PtrToArg<Vector<m_type>> {                                          \
@@ -319,6 +330,7 @@ MAKE_VECARR(Variant);
 MAKE_VECARR(RID);
 MAKE_VECARR(Plane);
 
+// No EncodeT because direct pointer conversion not possible.
 #define MAKE_DVECARR(m_type)                                                   \
 	template <>                                                                \
 	struct PtrToArg<Vector<m_type>> {                                          \
@@ -364,8 +376,9 @@ MAKE_VECARR(Plane);
 		}                                                                      \
 	}
 
-// Special case for IP_Address.
+// Special case for IPAddress.
 
+// No EncodeT because direct pointer conversion not possible.
 #define MAKE_STRINGCONV_BY_REFERENCE(m_type)                                  \
 	template <>                                                               \
 	struct PtrToArg<m_type> {                                                 \
@@ -387,8 +400,9 @@ MAKE_VECARR(Plane);
 		}                                                                     \
 	}
 
-MAKE_STRINGCONV_BY_REFERENCE(IP_Address);
+MAKE_STRINGCONV_BY_REFERENCE(IPAddress);
 
+// No EncodeT because direct pointer conversion not possible.
 template <>
 struct PtrToArg<Vector<Face3>> {
 	_FORCE_INLINE_ static Vector<Face3> convert(const void *p_ptr) {
@@ -423,6 +437,7 @@ struct PtrToArg<Vector<Face3>> {
 	}
 };
 
+// No EncodeT because direct pointer conversion not possible.
 template <>
 struct PtrToArg<const Vector<Face3> &> {
 	_FORCE_INLINE_ static Vector<Face3> convert(const void *p_ptr) {

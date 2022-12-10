@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -33,7 +33,6 @@
 
 #include "editor/editor_plugin.h"
 
-class EditorNode;
 class EditorFileServer;
 class MenuButton;
 class PopupMenu;
@@ -42,17 +41,19 @@ class DebuggerEditorPlugin : public EditorPlugin {
 	GDCLASS(DebuggerEditorPlugin, EditorPlugin);
 
 private:
-	MenuButton *debug_menu;
-	EditorFileServer *file_server;
-	PopupMenu *instances_menu;
+	PopupMenu *debug_menu = nullptr;
+	EditorFileServer *file_server = nullptr;
+	PopupMenu *instances_menu = nullptr;
 
 	enum MenuOptions {
 		RUN_FILE_SERVER,
 		RUN_LIVE_DEBUG,
-		RUN_DEBUG_COLLISONS,
+		RUN_DEBUG_COLLISIONS,
+		RUN_DEBUG_PATHS,
 		RUN_DEBUG_NAVIGATION,
 		RUN_DEPLOY_REMOTE_DEBUG,
 		RUN_RELOAD_SCRIPTS,
+		SERVER_KEEP_OPEN,
 	};
 
 	void _update_debug_options();
@@ -64,7 +65,7 @@ public:
 	virtual String get_name() const override { return "Debugger"; }
 	bool has_main_screen() const override { return false; }
 
-	DebuggerEditorPlugin(EditorNode *p_node, MenuButton *p_menu);
+	DebuggerEditorPlugin(PopupMenu *p_menu);
 	~DebuggerEditorPlugin();
 };
 

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -40,8 +40,8 @@ String CallableCustomBind::get_as_text() const {
 }
 
 bool CallableCustomBind::_equal_func(const CallableCustom *p_a, const CallableCustom *p_b) {
-	const CallableCustomBind *a = (const CallableCustomBind *)p_a;
-	const CallableCustomBind *b = (const CallableCustomBind *)p_b;
+	const CallableCustomBind *a = static_cast<const CallableCustomBind *>(p_a);
+	const CallableCustomBind *b = static_cast<const CallableCustomBind *>(p_b);
 
 	if (!(a->callable != b->callable)) {
 		return false;
@@ -55,8 +55,8 @@ bool CallableCustomBind::_equal_func(const CallableCustom *p_a, const CallableCu
 }
 
 bool CallableCustomBind::_less_func(const CallableCustom *p_a, const CallableCustom *p_b) {
-	const CallableCustomBind *a = (const CallableCustomBind *)p_a;
-	const CallableCustomBind *b = (const CallableCustomBind *)p_b;
+	const CallableCustomBind *a = static_cast<const CallableCustomBind *>(p_a);
+	const CallableCustomBind *b = static_cast<const CallableCustomBind *>(p_b);
 
 	if (a->callable < b->callable) {
 		return true;
@@ -70,12 +70,19 @@ bool CallableCustomBind::_less_func(const CallableCustom *p_a, const CallableCus
 CallableCustom::CompareEqualFunc CallableCustomBind::get_compare_equal_func() const {
 	return _equal_func;
 }
+
 CallableCustom::CompareLessFunc CallableCustomBind::get_compare_less_func() const {
 	return _less_func;
 }
+
+StringName CallableCustomBind::get_method() const {
+	return callable.get_method();
+}
+
 ObjectID CallableCustomBind::get_object() const {
 	return callable.get_object_id();
 }
+
 const Callable *CallableCustomBind::get_base_comparator() const {
 	return &callable;
 }
@@ -89,7 +96,7 @@ void CallableCustomBind::call(const Variant **p_arguments, int p_argcount, Varia
 		args[i + p_argcount] = (const Variant *)&binds[i];
 	}
 
-	callable.call(args, p_argcount + binds.size(), r_return_value, r_call_error);
+	callable.callp(args, p_argcount + binds.size(), r_return_value, r_call_error);
 }
 
 CallableCustomBind::CallableCustomBind(const Callable &p_callable, const Vector<Variant> &p_binds) {
@@ -110,8 +117,8 @@ String CallableCustomUnbind::get_as_text() const {
 }
 
 bool CallableCustomUnbind::_equal_func(const CallableCustom *p_a, const CallableCustom *p_b) {
-	const CallableCustomUnbind *a = (const CallableCustomUnbind *)p_a;
-	const CallableCustomUnbind *b = (const CallableCustomUnbind *)p_b;
+	const CallableCustomUnbind *a = static_cast<const CallableCustomUnbind *>(p_a);
+	const CallableCustomUnbind *b = static_cast<const CallableCustomUnbind *>(p_b);
 
 	if (!(a->callable != b->callable)) {
 		return false;
@@ -125,8 +132,8 @@ bool CallableCustomUnbind::_equal_func(const CallableCustom *p_a, const Callable
 }
 
 bool CallableCustomUnbind::_less_func(const CallableCustom *p_a, const CallableCustom *p_b) {
-	const CallableCustomUnbind *a = (const CallableCustomUnbind *)p_a;
-	const CallableCustomUnbind *b = (const CallableCustomUnbind *)p_b;
+	const CallableCustomUnbind *a = static_cast<const CallableCustomUnbind *>(p_a);
+	const CallableCustomUnbind *b = static_cast<const CallableCustomUnbind *>(p_b);
 
 	if (a->callable < b->callable) {
 		return true;
@@ -140,12 +147,19 @@ bool CallableCustomUnbind::_less_func(const CallableCustom *p_a, const CallableC
 CallableCustom::CompareEqualFunc CallableCustomUnbind::get_compare_equal_func() const {
 	return _equal_func;
 }
+
 CallableCustom::CompareLessFunc CallableCustomUnbind::get_compare_less_func() const {
 	return _less_func;
 }
+
+StringName CallableCustomUnbind::get_method() const {
+	return callable.get_method();
+}
+
 ObjectID CallableCustomUnbind::get_object() const {
 	return callable.get_object_id();
 }
+
 const Callable *CallableCustomUnbind::get_base_comparator() const {
 	return &callable;
 }
@@ -157,7 +171,7 @@ void CallableCustomUnbind::call(const Variant **p_arguments, int p_argcount, Var
 		r_call_error.expected = argcount;
 		return;
 	}
-	callable.call(p_arguments, p_argcount - argcount, r_return_value, r_call_error);
+	callable.callp(p_arguments, p_argcount - argcount, r_return_value, r_call_error);
 }
 
 CallableCustomUnbind::CallableCustomUnbind(const Callable &p_callable, int p_argcount) {
@@ -166,28 +180,4 @@ CallableCustomUnbind::CallableCustomUnbind(const Callable &p_callable, int p_arg
 }
 
 CallableCustomUnbind::~CallableCustomUnbind() {
-}
-
-Callable callable_bind(const Callable &p_callable, const Variant &p_arg1) {
-	return p_callable.bind((const Variant **)&p_arg1, 1);
-}
-
-Callable callable_bind(const Callable &p_callable, const Variant &p_arg1, const Variant &p_arg2) {
-	const Variant *args[2] = { &p_arg1, &p_arg2 };
-	return p_callable.bind(args, 2);
-}
-
-Callable callable_bind(const Callable &p_callable, const Variant &p_arg1, const Variant &p_arg2, const Variant &p_arg3) {
-	const Variant *args[3] = { &p_arg1, &p_arg2, &p_arg3 };
-	return p_callable.bind(args, 3);
-}
-
-Callable callable_bind(const Callable &p_callable, const Variant &p_arg1, const Variant &p_arg2, const Variant &p_arg3, const Variant &p_arg4) {
-	const Variant *args[4] = { &p_arg1, &p_arg2, &p_arg3, &p_arg4 };
-	return p_callable.bind(args, 4);
-}
-
-Callable callable_bind(const Callable &p_callable, const Variant &p_arg1, const Variant &p_arg2, const Variant &p_arg3, const Variant &p_arg4, const Variant &p_arg5) {
-	const Variant *args[5] = { &p_arg1, &p_arg2, &p_arg3, &p_arg4, &p_arg5 };
-	return p_callable.bind(args, 5);
 }

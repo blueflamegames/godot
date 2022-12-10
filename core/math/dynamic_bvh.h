@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -28,8 +28,8 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 
-#ifndef DYNAMICBVH_H
-#define DYNAMICBVH_H
+#ifndef DYNAMIC_BVH_H
+#define DYNAMIC_BVH_H
 
 #include "core/math/aabb.h"
 #include "core/templates/list.h"
@@ -343,7 +343,7 @@ void DynamicBVH::aabb_query(const AABB &p_box, QueryResult &r_result) {
 				if (depth > threshold) {
 					if (aux_stack.is_empty()) {
 						aux_stack.resize(ALLOCA_STACK_SIZE * 2);
-						copymem(aux_stack.ptr(), stack, ALLOCA_STACK_SIZE * sizeof(const Node *));
+						memcpy(aux_stack.ptr(), stack, ALLOCA_STACK_SIZE * sizeof(const Node *));
 					} else {
 						aux_stack.resize(aux_stack.size() * 2);
 					}
@@ -399,7 +399,7 @@ void DynamicBVH::convex_query(const Plane *p_planes, int p_plane_count, const Ve
 				if (depth > threshold) {
 					if (aux_stack.is_empty()) {
 						aux_stack.resize(ALLOCA_STACK_SIZE * 2);
-						copymem(aux_stack.ptr(), stack, ALLOCA_STACK_SIZE * sizeof(const Node *));
+						memcpy(aux_stack.ptr(), stack, ALLOCA_STACK_SIZE * sizeof(const Node *));
 					} else {
 						aux_stack.resize(aux_stack.size() * 2);
 					}
@@ -456,7 +456,7 @@ void DynamicBVH::ray_query(const Vector3 &p_from, const Vector3 &p_to, QueryResu
 				if (depth > threshold) {
 					if (aux_stack.is_empty()) {
 						aux_stack.resize(ALLOCA_STACK_SIZE * 2);
-						copymem(aux_stack.ptr(), stack, ALLOCA_STACK_SIZE * sizeof(const Node *));
+						memcpy(aux_stack.ptr(), stack, ALLOCA_STACK_SIZE * sizeof(const Node *));
 					} else {
 						aux_stack.resize(aux_stack.size() * 2);
 					}
@@ -474,4 +474,4 @@ void DynamicBVH::ray_query(const Vector3 &p_from, const Vector3 &p_to, QueryResu
 	} while (depth > 0);
 }
 
-#endif // DYNAMICBVH_H
+#endif // DYNAMIC_BVH_H

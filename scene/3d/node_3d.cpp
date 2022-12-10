@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,10 +30,10 @@
 
 #include "node_3d.h"
 
-#include "core/config/engine.h"
 #include "core/object/message_queue.h"
-#include "scene/main/scene_tree.h"
-#include "scene/main/window.h"
+#include "scene/3d/visual_instance_3d.h"
+#include "scene/main/viewport.h"
+#include "scene/property_utils.h"
 #include "scene/scene_string_names.h"
 
 /*
@@ -45,7 +45,7 @@
  definition of invalidation: global is invalid
 
  1) If a node sets a LOCAL, it produces an invalidation of everything above
-    a) If above is invalid, don't keep invalidating upwards
+ .  a) If above is invalid, don't keep invalidating upwards
  2) If a node sets a GLOBAL, it is converted to LOCAL (and forces validation of everything pending below)
 
  drawback: setting/reading globals is useful and used very often, and using affine inverses is slow
@@ -57,7 +57,7 @@
  definition of invalidation: NONE dirty, LOCAL dirty, GLOBAL dirty
 
  1) If a node sets a LOCAL, it must climb the tree and set it as GLOBAL dirty
-    a) marking GLOBALs as dirty up all the tree must be done always
+ .  a) marking GLOBALs as dirty up all the tree must be done always
  2) If a node sets a GLOBAL, it marks local as dirty, and that's all?
 
  //is clearing the dirty state correct in this case?
@@ -75,7 +75,7 @@ Node3DGizmo::Node3DGizmo() {
 
 void Node3D::_notify_dirty() {
 #ifdef TOOLS_ENABLED
-	if ((data.gizmo.is_valid() || data.notify_transform) && !data.ignore_notification && !xform_change.in_list()) {
+	if ((!data.gizmos.is_empty() || data.notify_transform) && !data.ignore_notification && !xform_change.in_list()) {
 #else
 	if (data.notify_transform && !data.ignore_notification && !xform_change.in_list()) {
 
@@ -85,9 +85,20 @@ void Node3D::_notify_dirty() {
 }
 
 void Node3D::_update_local_transform() const {
-	data.local_transform.basis.set_euler_scale(data.rotation, data.scale);
+	// This function is called when the local transform (data.local_transform) is dirty and the right value is contained in the Euler rotation and scale.
 
-	data.dirty &= ~DIRTY_LOCAL;
+	data.local_transform.basis.set_euler_scale(data.euler_rotation, data.scale, data.euler_rotation_order);
+
+	data.dirty &= ~DIRTY_LOCAL_TRANSFORM;
+}
+
+void Node3D::_update_rotation_and_scale() const {
+	// This function is called when the Euler rotation (data.euler_rotation) is dirty and the right value is contained in the local transform
+
+	data.scale = data.local_transform.basis.get_scale();
+	data.euler_rotation = data.local_transform.basis.get_euler_normalized(data.euler_rotation_order);
+
+	data.dirty &= ~DIRTY_EULER_ROTATION_AND_SCALE;
 }
 
 void Node3D::_propagate_transform_changed(Node3D *p_origin) {
@@ -95,27 +106,22 @@ void Node3D::_propagate_transform_changed(Node3D *p_origin) {
 		return;
 	}
 
-	/*
-	if (data.dirty&DIRTY_GLOBAL)
-		return; //already dirty
-	*/
-
 	data.children_lock++;
 
-	for (List<Node3D *>::Element *E = data.children.front(); E; E = E->next()) {
-		if (E->get()->data.top_level_active) {
+	for (Node3D *&E : data.children) {
+		if (E->data.top_level_active) {
 			continue; //don't propagate to a top_level
 		}
-		E->get()->_propagate_transform_changed(p_origin);
+		E->_propagate_transform_changed(p_origin);
 	}
 #ifdef TOOLS_ENABLED
-	if ((data.gizmo.is_valid() || data.notify_transform) && !data.ignore_notification && !xform_change.in_list()) {
+	if ((!data.gizmos.is_empty() || data.notify_transform) && !data.ignore_notification && !xform_change.in_list()) {
 #else
 	if (data.notify_transform && !data.ignore_notification && !xform_change.in_list()) {
 #endif
 		get_tree()->xform_change_list.add(&xform_change);
 	}
-	data.dirty |= DIRTY_GLOBAL;
+	data.dirty |= DIRTY_GLOBAL_TRANSFORM;
 
 	data.children_lock--;
 }
@@ -139,17 +145,18 @@ void Node3D::_notification(int p_what) {
 			if (data.top_level && !Engine::get_singleton()->is_editor_hint()) {
 				if (data.parent) {
 					data.local_transform = data.parent->get_global_transform() * get_transform();
-					data.dirty = DIRTY_VECTORS; //global is always dirty upon entering a scene
+					data.dirty = DIRTY_EULER_ROTATION_AND_SCALE; // As local transform was updated, rot/scale should be dirty.
 				}
 				data.top_level_active = true;
 			}
 
-			data.dirty |= DIRTY_GLOBAL; //global is always dirty upon entering a scene
+			data.dirty |= DIRTY_GLOBAL_TRANSFORM; // Global is always dirty upon entering a scene.
 			_notify_dirty();
 
 			notification(NOTIFICATION_ENTER_WORLD);
-
+			_update_visibility_parent(true);
 		} break;
+
 		case NOTIFICATION_EXIT_TREE: {
 			notification(NOTIFICATION_EXIT_WORLD, true);
 			if (xform_change.in_list()) {
@@ -161,7 +168,9 @@ void Node3D::_notification(int p_what) {
 			data.parent = nullptr;
 			data.C = nullptr;
 			data.top_level_active = false;
+			_update_visibility_parent(true);
 		} break;
+
 		case NOTIFICATION_ENTER_WORLD: {
 			data.inside_world = true;
 			data.viewport = nullptr;
@@ -176,29 +185,17 @@ void Node3D::_notification(int p_what) {
 			if (get_script_instance()) {
 				get_script_instance()->call(SceneStringNames::get_singleton()->_enter_world);
 			}
+
 #ifdef TOOLS_ENABLED
 			if (Engine::get_singleton()->is_editor_hint() && get_tree()->is_node_being_edited(this)) {
-				//get_scene()->call_group(SceneMainLoop::GROUP_CALL_REALTIME,SceneStringNames::get_singleton()->_spatial_editor_group,SceneStringNames::get_singleton()->_request_gizmo,this);
-				get_tree()->call_group_flags(0, SceneStringNames::get_singleton()->_spatial_editor_group, SceneStringNames::get_singleton()->_request_gizmo, this);
-				if (!data.gizmo_disabled) {
-					if (data.gizmo.is_valid()) {
-						data.gizmo->create();
-						if (is_visible_in_tree()) {
-							data.gizmo->redraw();
-						}
-						data.gizmo->transform();
-					}
-				}
+				get_tree()->call_group_flags(SceneTree::GROUP_CALL_DEFERRED, SceneStringNames::get_singleton()->_spatial_editor_group, SceneStringNames::get_singleton()->_request_gizmo, this);
 			}
 #endif
-
 		} break;
+
 		case NOTIFICATION_EXIT_WORLD: {
 #ifdef TOOLS_ENABLED
-			if (data.gizmo.is_valid()) {
-				data.gizmo->free();
-				data.gizmo.unref();
-			}
+			clear_gizmos();
 #endif
 
 			if (get_script_instance()) {
@@ -207,53 +204,101 @@ void Node3D::_notification(int p_what) {
 
 			data.viewport = nullptr;
 			data.inside_world = false;
-
 		} break;
 
 		case NOTIFICATION_TRANSFORM_CHANGED: {
 #ifdef TOOLS_ENABLED
-			if (data.gizmo.is_valid()) {
-				data.gizmo->transform();
+			for (int i = 0; i < data.gizmos.size(); i++) {
+				data.gizmos.write[i]->transform();
 			}
 #endif
 		} break;
-
-		default: {
-		}
 	}
 }
 
-void Node3D::set_transform(const Transform &p_transform) {
-	data.local_transform = p_transform;
-	data.dirty |= DIRTY_VECTORS;
+void Node3D::set_basis(const Basis &p_basis) {
+	set_transform(Transform3D(p_basis, data.local_transform.origin));
+}
+void Node3D::set_quaternion(const Quaternion &p_quaternion) {
+	if (data.dirty & DIRTY_EULER_ROTATION_AND_SCALE) {
+		// We need the scale part, so if these are dirty, update it
+		data.scale = data.local_transform.basis.get_scale();
+		data.dirty &= ~DIRTY_EULER_ROTATION_AND_SCALE;
+	}
+	data.local_transform.basis = Basis(p_quaternion, data.scale);
+	// Rotscale should not be marked dirty because that would cause precision loss issues with the scale. Instead reconstruct rotation now.
+	data.euler_rotation = data.local_transform.basis.get_euler_normalized(data.euler_rotation_order);
+
+	data.dirty = DIRTY_NONE;
+
 	_propagate_transform_changed(this);
 	if (data.notify_local_transform) {
 		notification(NOTIFICATION_LOCAL_TRANSFORM_CHANGED);
 	}
 }
 
-void Node3D::set_global_transform(const Transform &p_transform) {
-	Transform xform =
-			(data.parent && !data.top_level_active) ?
-					  data.parent->get_global_transform().affine_inverse() * p_transform :
-					  p_transform;
+Vector3 Node3D::get_global_position() const {
+	return get_global_transform().get_origin();
+}
+
+void Node3D::set_global_position(const Vector3 &p_position) {
+	Transform3D transform = get_global_transform();
+	transform.set_origin(p_position);
+	set_global_transform(transform);
+}
+
+Vector3 Node3D::get_global_rotation() const {
+	return get_global_transform().get_basis().get_euler();
+}
+
+void Node3D::set_global_rotation(const Vector3 &p_euler_rad) {
+	Transform3D transform = get_global_transform();
+	transform.basis = Basis::from_euler(p_euler_rad);
+	set_global_transform(transform);
+}
+
+void Node3D::set_transform(const Transform3D &p_transform) {
+	data.local_transform = p_transform;
+	data.dirty = DIRTY_EULER_ROTATION_AND_SCALE; // Make rot/scale dirty.
+
+	_propagate_transform_changed(this);
+	if (data.notify_local_transform) {
+		notification(NOTIFICATION_LOCAL_TRANSFORM_CHANGED);
+	}
+}
+
+Basis Node3D::get_basis() const {
+	return get_transform().basis;
+}
+
+Quaternion Node3D::get_quaternion() const {
+	if (data.dirty & DIRTY_LOCAL_TRANSFORM) {
+		_update_local_transform();
+	}
+
+	return data.local_transform.basis.get_rotation_quaternion();
+}
+
+void Node3D::set_global_transform(const Transform3D &p_transform) {
+	Transform3D xform = (data.parent && !data.top_level_active)
+			? data.parent->get_global_transform().affine_inverse() * p_transform
+			: p_transform;
 
 	set_transform(xform);
 }
 
-Transform Node3D::get_transform() const {
-	if (data.dirty & DIRTY_LOCAL) {
+Transform3D Node3D::get_transform() const {
+	if (data.dirty & DIRTY_LOCAL_TRANSFORM) {
 		_update_local_transform();
 	}
 
 	return data.local_transform;
 }
+Transform3D Node3D::get_global_transform() const {
+	ERR_FAIL_COND_V(!is_inside_tree(), Transform3D());
 
-Transform Node3D::get_global_transform() const {
-	ERR_FAIL_COND_V(!is_inside_tree(), Transform());
-
-	if (data.dirty & DIRTY_GLOBAL) {
-		if (data.dirty & DIRTY_LOCAL) {
+	if (data.dirty & DIRTY_GLOBAL_TRANSFORM) {
+		if (data.dirty & DIRTY_LOCAL_TRANSFORM) {
 			_update_local_transform();
 		}
 
@@ -267,32 +312,36 @@ Transform Node3D::get_global_transform() const {
 			data.global_transform.basis.orthonormalize();
 		}
 
-		data.dirty &= ~DIRTY_GLOBAL;
+		data.dirty &= ~DIRTY_GLOBAL_TRANSFORM;
 	}
 
 	return data.global_transform;
 }
 
 #ifdef TOOLS_ENABLED
-Transform Node3D::get_global_gizmo_transform() const {
+Transform3D Node3D::get_global_gizmo_transform() const {
 	return get_global_transform();
 }
 
-Transform Node3D::get_local_gizmo_transform() const {
+Transform3D Node3D::get_local_gizmo_transform() const {
 	return get_transform();
 }
 #endif
 
-Node3D *Node3D::get_parent_spatial() const {
-	return data.parent;
-}
-
-Transform Node3D::get_relative_transform(const Node *p_parent) const {
-	if (p_parent == this) {
-		return Transform();
+Node3D *Node3D::get_parent_node_3d() const {
+	if (data.top_level) {
+		return nullptr;
 	}
 
-	ERR_FAIL_COND_V(!data.parent, Transform());
+	return Object::cast_to<Node3D>(get_parent());
+}
+
+Transform3D Node3D::get_relative_transform(const Node *p_parent) const {
+	if (p_parent == this) {
+		return Transform3D();
+	}
+
+	ERR_FAIL_COND_V(!data.parent, Transform3D());
 
 	if (p_parent == data.parent) {
 		return get_transform();
@@ -301,151 +350,258 @@ Transform Node3D::get_relative_transform(const Node *p_parent) const {
 	}
 }
 
-void Node3D::set_translation(const Vector3 &p_translation) {
-	data.local_transform.origin = p_translation;
+void Node3D::set_position(const Vector3 &p_position) {
+	data.local_transform.origin = p_position;
 	_propagate_transform_changed(this);
 	if (data.notify_local_transform) {
 		notification(NOTIFICATION_LOCAL_TRANSFORM_CHANGED);
 	}
+}
+
+void Node3D::set_rotation_edit_mode(RotationEditMode p_mode) {
+	if (data.rotation_edit_mode == p_mode) {
+		return;
+	}
+
+	bool transform_changed = false;
+	if (data.rotation_edit_mode == ROTATION_EDIT_MODE_BASIS && !(data.dirty & DIRTY_LOCAL_TRANSFORM)) {
+		data.local_transform.orthogonalize();
+		transform_changed = true;
+	}
+
+	data.rotation_edit_mode = p_mode;
+
+	if (p_mode == ROTATION_EDIT_MODE_EULER && (data.dirty & DIRTY_EULER_ROTATION_AND_SCALE)) {
+		// If going to Euler mode, ensure that vectors are _not_ dirty, else the retrieved value may be wrong.
+		// Otherwise keep what is there, so switching back and forth between modes does not break the vectors.
+
+		_update_rotation_and_scale();
+	}
+
+	if (transform_changed) {
+		_propagate_transform_changed(this);
+		if (data.notify_local_transform) {
+			notification(NOTIFICATION_LOCAL_TRANSFORM_CHANGED);
+		}
+	}
+
+	notify_property_list_changed();
+}
+
+Node3D::RotationEditMode Node3D::get_rotation_edit_mode() const {
+	return data.rotation_edit_mode;
+}
+
+void Node3D::set_rotation_order(EulerOrder p_order) {
+	if (data.euler_rotation_order == p_order) {
+		return;
+	}
+
+	ERR_FAIL_INDEX(int32_t(p_order), 6);
+	bool transform_changed = false;
+
+	if (data.dirty & DIRTY_EULER_ROTATION_AND_SCALE) {
+		_update_rotation_and_scale();
+	} else if (data.dirty & DIRTY_LOCAL_TRANSFORM) {
+		data.euler_rotation = Basis::from_euler(data.euler_rotation, data.euler_rotation_order).get_euler_normalized(p_order);
+		transform_changed = true;
+	} else {
+		data.dirty |= DIRTY_LOCAL_TRANSFORM;
+		transform_changed = true;
+	}
+
+	data.euler_rotation_order = p_order;
+
+	if (transform_changed) {
+		_propagate_transform_changed(this);
+		if (data.notify_local_transform) {
+			notification(NOTIFICATION_LOCAL_TRANSFORM_CHANGED);
+		}
+	}
+	notify_property_list_changed(); // Will change the rotation property.
+}
+
+EulerOrder Node3D::get_rotation_order() const {
+	return data.euler_rotation_order;
 }
 
 void Node3D::set_rotation(const Vector3 &p_euler_rad) {
-	if (data.dirty & DIRTY_VECTORS) {
+	if (data.dirty & DIRTY_EULER_ROTATION_AND_SCALE) {
+		// Update scale only if rotation and scale are dirty, as rotation will be overridden.
 		data.scale = data.local_transform.basis.get_scale();
-		data.dirty &= ~DIRTY_VECTORS;
+		data.dirty &= ~DIRTY_EULER_ROTATION_AND_SCALE;
 	}
 
-	data.rotation = p_euler_rad;
-	data.dirty |= DIRTY_LOCAL;
+	data.euler_rotation = p_euler_rad;
+	data.dirty = DIRTY_LOCAL_TRANSFORM;
 	_propagate_transform_changed(this);
 	if (data.notify_local_transform) {
 		notification(NOTIFICATION_LOCAL_TRANSFORM_CHANGED);
 	}
-}
-
-void Node3D::set_rotation_degrees(const Vector3 &p_euler_deg) {
-	set_rotation(p_euler_deg * (Math_PI / 180.0));
 }
 
 void Node3D::set_scale(const Vector3 &p_scale) {
-	if (data.dirty & DIRTY_VECTORS) {
-		data.rotation = data.local_transform.basis.get_rotation();
-		data.dirty &= ~DIRTY_VECTORS;
+	if (data.dirty & DIRTY_EULER_ROTATION_AND_SCALE) {
+		// Update rotation only if rotation and scale are dirty, as scale will be overridden.
+		data.euler_rotation = data.local_transform.basis.get_euler_normalized(data.euler_rotation_order);
+		data.dirty &= ~DIRTY_EULER_ROTATION_AND_SCALE;
 	}
 
 	data.scale = p_scale;
-	data.dirty |= DIRTY_LOCAL;
+	data.dirty = DIRTY_LOCAL_TRANSFORM;
 	_propagate_transform_changed(this);
 	if (data.notify_local_transform) {
 		notification(NOTIFICATION_LOCAL_TRANSFORM_CHANGED);
 	}
 }
 
-Vector3 Node3D::get_translation() const {
+Vector3 Node3D::get_position() const {
 	return data.local_transform.origin;
 }
 
 Vector3 Node3D::get_rotation() const {
-	if (data.dirty & DIRTY_VECTORS) {
-		data.scale = data.local_transform.basis.get_scale();
-		data.rotation = data.local_transform.basis.get_rotation();
-
-		data.dirty &= ~DIRTY_VECTORS;
+	if (data.dirty & DIRTY_EULER_ROTATION_AND_SCALE) {
+		_update_rotation_and_scale();
 	}
 
-	return data.rotation;
-}
-
-Vector3 Node3D::get_rotation_degrees() const {
-	return get_rotation() * (180.0 / Math_PI);
+	return data.euler_rotation;
 }
 
 Vector3 Node3D::get_scale() const {
-	if (data.dirty & DIRTY_VECTORS) {
-		data.scale = data.local_transform.basis.get_scale();
-		data.rotation = data.local_transform.basis.get_rotation();
-
-		data.dirty &= ~DIRTY_VECTORS;
+	if (data.dirty & DIRTY_EULER_ROTATION_AND_SCALE) {
+		_update_rotation_and_scale();
 	}
 
 	return data.scale;
 }
 
-void Node3D::update_gizmo() {
+void Node3D::update_gizmos() {
 #ifdef TOOLS_ENABLED
 	if (!is_inside_world()) {
 		return;
 	}
-	if (!data.gizmo.is_valid()) {
-		get_tree()->call_group_flags(SceneTree::GROUP_CALL_REALTIME, SceneStringNames::get_singleton()->_spatial_editor_group, SceneStringNames::get_singleton()->_request_gizmo, this);
-	}
-	if (!data.gizmo.is_valid()) {
+
+	if (data.gizmos.is_empty()) {
+		get_tree()->call_group_flags(SceneTree::GROUP_CALL_DEFERRED, SceneStringNames::get_singleton()->_spatial_editor_group, SceneStringNames::get_singleton()->_request_gizmo, this);
 		return;
 	}
-	if (data.gizmo_dirty) {
+	if (data.gizmos_dirty) {
 		return;
 	}
-	data.gizmo_dirty = true;
-	MessageQueue::get_singleton()->push_call(this, "_update_gizmo");
+	data.gizmos_dirty = true;
+	MessageQueue::get_singleton()->push_callable(callable_mp(this, &Node3D::_update_gizmos));
 #endif
 }
 
-void Node3D::set_gizmo(const Ref<Node3DGizmo> &p_gizmo) {
+void Node3D::set_subgizmo_selection(Ref<Node3DGizmo> p_gizmo, int p_id, Transform3D p_transform) {
 #ifdef TOOLS_ENABLED
-
-	if (data.gizmo_disabled) {
+	if (!is_inside_world()) {
 		return;
 	}
-	if (data.gizmo.is_valid() && is_inside_world()) {
-		data.gizmo->free();
+
+	if (Engine::get_singleton()->is_editor_hint() && get_tree()->is_node_being_edited(this)) {
+		get_tree()->call_group_flags(SceneTree::GROUP_CALL_DEFERRED, SceneStringNames::get_singleton()->_spatial_editor_group, SceneStringNames::get_singleton()->_set_subgizmo_selection, this, p_gizmo, p_id, p_transform);
 	}
-	data.gizmo = p_gizmo;
-	if (data.gizmo.is_valid() && is_inside_world()) {
-		data.gizmo->create();
+#endif
+}
+
+void Node3D::clear_subgizmo_selection() {
+#ifdef TOOLS_ENABLED
+	if (!is_inside_world()) {
+		return;
+	}
+
+	if (data.gizmos.is_empty()) {
+		return;
+	}
+
+	if (Engine::get_singleton()->is_editor_hint() && get_tree()->is_node_being_edited(this)) {
+		get_tree()->call_group_flags(SceneTree::GROUP_CALL_DEFERRED, SceneStringNames::get_singleton()->_spatial_editor_group, SceneStringNames::get_singleton()->_clear_subgizmo_selection, this);
+	}
+#endif
+}
+
+void Node3D::add_gizmo(Ref<Node3DGizmo> p_gizmo) {
+#ifdef TOOLS_ENABLED
+	if (data.gizmos_disabled || p_gizmo.is_null()) {
+		return;
+	}
+	data.gizmos.push_back(p_gizmo);
+
+	if (p_gizmo.is_valid() && is_inside_world()) {
+		p_gizmo->create();
 		if (is_visible_in_tree()) {
-			data.gizmo->redraw();
+			p_gizmo->redraw();
 		}
-		data.gizmo->transform();
+		p_gizmo->transform();
 	}
-
 #endif
 }
 
-Ref<Node3DGizmo> Node3D::get_gizmo() const {
+void Node3D::remove_gizmo(Ref<Node3DGizmo> p_gizmo) {
 #ifdef TOOLS_ENABLED
+	int idx = data.gizmos.find(p_gizmo);
+	if (idx != -1) {
+		p_gizmo->free();
+		data.gizmos.remove_at(idx);
+	}
+#endif
+}
 
-	return data.gizmo;
+void Node3D::clear_gizmos() {
+#ifdef TOOLS_ENABLED
+	for (int i = 0; i < data.gizmos.size(); i++) {
+		data.gizmos.write[i]->free();
+	}
+	data.gizmos.clear();
+#endif
+}
+
+TypedArray<Node3DGizmo> Node3D::get_gizmos_bind() const {
+	TypedArray<Node3DGizmo> ret;
+
+#ifdef TOOLS_ENABLED
+	for (int i = 0; i < data.gizmos.size(); i++) {
+		ret.push_back(Variant(data.gizmos[i].ptr()));
+	}
+#endif
+
+	return ret;
+}
+
+Vector<Ref<Node3DGizmo>> Node3D::get_gizmos() const {
+#ifdef TOOLS_ENABLED
+	return data.gizmos;
 #else
-
-	return Ref<Node3DGizmo>();
+	return Vector<Ref<Node3DGizmo>>();
 #endif
 }
 
-void Node3D::_update_gizmo() {
+void Node3D::_update_gizmos() {
 #ifdef TOOLS_ENABLED
-	if (!is_inside_world()) {
+	if (data.gizmos_disabled || !is_inside_world() || !data.gizmos_dirty) {
+		data.gizmos_dirty = false;
 		return;
 	}
-	data.gizmo_dirty = false;
-	if (data.gizmo.is_valid()) {
+	data.gizmos_dirty = false;
+	for (int i = 0; i < data.gizmos.size(); i++) {
 		if (is_visible_in_tree()) {
-			data.gizmo->redraw();
+			data.gizmos.write[i]->redraw();
 		} else {
-			data.gizmo->clear();
+			data.gizmos.write[i]->clear();
 		}
 	}
 #endif
 }
 
+void Node3D::set_disable_gizmos(bool p_enabled) {
 #ifdef TOOLS_ENABLED
-void Node3D::set_disable_gizmo(bool p_enabled) {
-	data.gizmo_disabled = p_enabled;
-	if (!p_enabled && data.gizmo.is_valid()) {
-		data.gizmo = Ref<Node3DGizmo>();
+	data.gizmos_disabled = p_enabled;
+	if (!p_enabled) {
+		clear_gizmos();
 	}
-}
-
 #endif
+}
 
 void Node3D::set_disable_scale(bool p_enabled) {
 	data.disable_scale = p_enabled;
@@ -468,7 +624,6 @@ void Node3D::set_as_top_level(bool p_enabled) {
 
 		data.top_level = p_enabled;
 		data.top_level_active = p_enabled;
-
 	} else {
 		data.top_level = p_enabled;
 	}
@@ -488,14 +643,15 @@ Ref<World3D> Node3D::get_world_3d() const {
 void Node3D::_propagate_visibility_changed() {
 	notification(NOTIFICATION_VISIBILITY_CHANGED);
 	emit_signal(SceneStringNames::get_singleton()->visibility_changed);
+
 #ifdef TOOLS_ENABLED
-	if (data.gizmo.is_valid()) {
-		_update_gizmo();
+	if (!data.gizmos.is_empty()) {
+		data.gizmos_dirty = true;
+		_update_gizmos();
 	}
 #endif
 
-	for (List<Node3D *>::Element *E = data.children.front(); E; E = E->next()) {
-		Node3D *c = E->get();
+	for (Node3D *c : data.children) {
 		if (!c || !c->data.visible) {
 			continue;
 		}
@@ -504,31 +660,28 @@ void Node3D::_propagate_visibility_changed() {
 }
 
 void Node3D::show() {
-	if (data.visible) {
-		return;
-	}
-
-	data.visible = true;
-
-	if (!is_inside_tree()) {
-		return;
-	}
-
-	_propagate_visibility_changed();
+	set_visible(true);
 }
 
 void Node3D::hide() {
-	if (!data.visible) {
+	set_visible(false);
+}
+
+void Node3D::set_visible(bool p_visible) {
+	if (data.visible == p_visible) {
 		return;
 	}
 
-	data.visible = false;
+	data.visible = p_visible;
 
 	if (!is_inside_tree()) {
 		return;
 	}
-
 	_propagate_visibility_changed();
+}
+
+bool Node3D::is_visible() const {
+	return data.visible;
 }
 
 bool Node3D::is_visible_in_tree() const {
@@ -544,116 +697,103 @@ bool Node3D::is_visible_in_tree() const {
 	return true;
 }
 
-void Node3D::set_visible(bool p_visible) {
-	if (p_visible) {
-		show();
-	} else {
-		hide();
-	}
-}
-
-bool Node3D::is_visible() const {
-	return data.visible;
-}
-
-void Node3D::rotate_object_local(const Vector3 &p_axis, float p_angle) {
-	Transform t = get_transform();
+void Node3D::rotate_object_local(const Vector3 &p_axis, real_t p_angle) {
+	Transform3D t = get_transform();
 	t.basis.rotate_local(p_axis, p_angle);
 	set_transform(t);
 }
 
-void Node3D::rotate(const Vector3 &p_axis, float p_angle) {
-	Transform t = get_transform();
+void Node3D::rotate(const Vector3 &p_axis, real_t p_angle) {
+	Transform3D t = get_transform();
 	t.basis.rotate(p_axis, p_angle);
 	set_transform(t);
 }
 
-void Node3D::rotate_x(float p_angle) {
-	Transform t = get_transform();
+void Node3D::rotate_x(real_t p_angle) {
+	Transform3D t = get_transform();
 	t.basis.rotate(Vector3(1, 0, 0), p_angle);
 	set_transform(t);
 }
 
-void Node3D::rotate_y(float p_angle) {
-	Transform t = get_transform();
+void Node3D::rotate_y(real_t p_angle) {
+	Transform3D t = get_transform();
 	t.basis.rotate(Vector3(0, 1, 0), p_angle);
 	set_transform(t);
 }
 
-void Node3D::rotate_z(float p_angle) {
-	Transform t = get_transform();
+void Node3D::rotate_z(real_t p_angle) {
+	Transform3D t = get_transform();
 	t.basis.rotate(Vector3(0, 0, 1), p_angle);
 	set_transform(t);
 }
 
 void Node3D::translate(const Vector3 &p_offset) {
-	Transform t = get_transform();
-	t.translate(p_offset);
+	Transform3D t = get_transform();
+	t.translate_local(p_offset);
 	set_transform(t);
 }
 
 void Node3D::translate_object_local(const Vector3 &p_offset) {
-	Transform t = get_transform();
+	Transform3D t = get_transform();
 
-	Transform s;
-	s.translate(p_offset);
+	Transform3D s;
+	s.translate_local(p_offset);
 	set_transform(t * s);
 }
 
 void Node3D::scale(const Vector3 &p_ratio) {
-	Transform t = get_transform();
+	Transform3D t = get_transform();
 	t.basis.scale(p_ratio);
 	set_transform(t);
 }
 
 void Node3D::scale_object_local(const Vector3 &p_scale) {
-	Transform t = get_transform();
+	Transform3D t = get_transform();
 	t.basis.scale_local(p_scale);
 	set_transform(t);
 }
 
-void Node3D::global_rotate(const Vector3 &p_axis, float p_angle) {
-	Transform t = get_global_transform();
+void Node3D::global_rotate(const Vector3 &p_axis, real_t p_angle) {
+	Transform3D t = get_global_transform();
 	t.basis.rotate(p_axis, p_angle);
 	set_global_transform(t);
 }
 
 void Node3D::global_scale(const Vector3 &p_scale) {
-	Transform t = get_global_transform();
+	Transform3D t = get_global_transform();
 	t.basis.scale(p_scale);
 	set_global_transform(t);
 }
 
 void Node3D::global_translate(const Vector3 &p_offset) {
-	Transform t = get_global_transform();
+	Transform3D t = get_global_transform();
 	t.origin += p_offset;
 	set_global_transform(t);
 }
 
 void Node3D::orthonormalize() {
-	Transform t = get_transform();
+	Transform3D t = get_transform();
 	t.orthonormalize();
 	set_transform(t);
 }
 
 void Node3D::set_identity() {
-	set_transform(Transform());
+	set_transform(Transform3D());
 }
 
 void Node3D::look_at(const Vector3 &p_target, const Vector3 &p_up) {
-	Vector3 origin(get_global_transform().origin);
+	ERR_FAIL_COND_MSG(!is_inside_tree(), "Node not inside tree. Use look_at_from_position() instead.");
+	Vector3 origin = get_global_transform().origin;
 	look_at_from_position(origin, p_target, p_up);
 }
 
 void Node3D::look_at_from_position(const Vector3 &p_pos, const Vector3 &p_target, const Vector3 &p_up) {
-	ERR_FAIL_COND_MSG(p_pos == p_target, "Node origin and target are in the same position, look_at() failed.");
-	ERR_FAIL_COND_MSG(p_up.cross(p_target - p_pos) == Vector3(), "Up vector and direction between node origin and target are aligned, look_at() failed.");
+	ERR_FAIL_COND_MSG(p_pos.is_equal_approx(p_target), "Node origin and target are in the same position, look_at() failed.");
+	ERR_FAIL_COND_MSG(p_up.is_zero_approx(), "The up vector can't be zero, look_at() failed.");
+	ERR_FAIL_COND_MSG(p_up.cross(p_target - p_pos).is_zero_approx(), "Up vector and direction between node origin and target are aligned, look_at() failed.");
 
-	Transform lookat;
-	lookat.origin = p_pos;
-
-	Vector3 original_scale(get_scale());
-	lookat = lookat.looking_at(p_target, p_up);
+	Transform3D lookat = Transform3D(Basis::looking_at(p_target - p_pos, p_up), p_pos);
+	Vector3 original_scale = get_scale();
 	set_global_transform(lookat);
 	set_scale(original_scale);
 }
@@ -666,16 +806,16 @@ Vector3 Node3D::to_global(Vector3 p_local) const {
 	return get_global_transform().xform(p_local);
 }
 
-void Node3D::set_notify_transform(bool p_enable) {
-	data.notify_transform = p_enable;
+void Node3D::set_notify_transform(bool p_enabled) {
+	data.notify_transform = p_enabled;
 }
 
 bool Node3D::is_transform_notification_enabled() const {
 	return data.notify_transform;
 }
 
-void Node3D::set_notify_local_transform(bool p_enable) {
-	data.notify_local_transform = p_enable;
+void Node3D::set_notify_local_transform(bool p_enabled) {
+	data.notify_local_transform = p_enabled;
 }
 
 bool Node3D::is_local_transform_notification_enabled() const {
@@ -692,20 +832,153 @@ void Node3D::force_update_transform() {
 	notification(NOTIFICATION_TRANSFORM_CHANGED);
 }
 
+void Node3D::_update_visibility_parent(bool p_update_root) {
+	RID new_parent;
+
+	if (!visibility_parent_path.is_empty()) {
+		if (!p_update_root) {
+			return;
+		}
+		Node *parent = get_node_or_null(visibility_parent_path);
+		ERR_FAIL_COND_MSG(!parent, "Can't find visibility parent node at path: " + visibility_parent_path);
+		ERR_FAIL_COND_MSG(parent == this, "The visibility parent can't be the same node.");
+		GeometryInstance3D *gi = Object::cast_to<GeometryInstance3D>(parent);
+		ERR_FAIL_COND_MSG(!gi, "The visibility parent node must be a GeometryInstance3D, at path: " + visibility_parent_path);
+		new_parent = gi ? gi->get_instance() : RID();
+	} else if (data.parent) {
+		new_parent = data.parent->data.visibility_parent;
+	}
+
+	if (new_parent == data.visibility_parent) {
+		return;
+	}
+
+	data.visibility_parent = new_parent;
+
+	VisualInstance3D *vi = Object::cast_to<VisualInstance3D>(this);
+	if (vi) {
+		RS::get_singleton()->instance_set_visibility_parent(vi->get_instance(), data.visibility_parent);
+	}
+
+	for (Node3D *c : data.children) {
+		c->_update_visibility_parent(false);
+	}
+}
+
+void Node3D::set_visibility_parent(const NodePath &p_path) {
+	visibility_parent_path = p_path;
+	if (is_inside_tree()) {
+		_update_visibility_parent(true);
+	}
+}
+
+NodePath Node3D::get_visibility_parent() const {
+	return visibility_parent_path;
+}
+
+void Node3D::_validate_property(PropertyInfo &p_property) const {
+	if (data.rotation_edit_mode != ROTATION_EDIT_MODE_BASIS && p_property.name == "basis") {
+		p_property.usage = 0;
+	}
+	if (data.rotation_edit_mode == ROTATION_EDIT_MODE_BASIS && p_property.name == "scale") {
+		p_property.usage = 0;
+	}
+	if (data.rotation_edit_mode != ROTATION_EDIT_MODE_QUATERNION && p_property.name == "quaternion") {
+		p_property.usage = 0;
+	}
+	if (data.rotation_edit_mode != ROTATION_EDIT_MODE_EULER && p_property.name == "rotation") {
+		p_property.usage = 0;
+	}
+	if (data.rotation_edit_mode != ROTATION_EDIT_MODE_EULER && p_property.name == "rotation_order") {
+		p_property.usage = 0;
+	}
+}
+
+bool Node3D::_property_can_revert(const StringName &p_name) const {
+	if (p_name == "basis") {
+		return true;
+	} else if (p_name == "scale") {
+		return true;
+	} else if (p_name == "quaternion") {
+		return true;
+	} else if (p_name == "rotation") {
+		return true;
+	} else if (p_name == "position") {
+		return true;
+	}
+	return false;
+}
+
+bool Node3D::_property_get_revert(const StringName &p_name, Variant &r_property) const {
+	bool valid = false;
+
+	if (p_name == "basis") {
+		Variant variant = PropertyUtils::get_property_default_value(this, "transform", &valid);
+		if (valid && variant.get_type() == Variant::Type::TRANSFORM3D) {
+			r_property = Transform3D(variant).get_basis();
+		} else {
+			r_property = Basis();
+		}
+	} else if (p_name == "scale") {
+		Variant variant = PropertyUtils::get_property_default_value(this, "transform", &valid);
+		if (valid && variant.get_type() == Variant::Type::TRANSFORM3D) {
+			r_property = Transform3D(variant).get_basis().get_scale();
+		} else {
+			r_property = Vector3(1.0, 1.0, 1.0);
+		}
+	} else if (p_name == "quaternion") {
+		Variant variant = PropertyUtils::get_property_default_value(this, "transform", &valid);
+		if (valid && variant.get_type() == Variant::Type::TRANSFORM3D) {
+			r_property = Quaternion(Transform3D(variant).get_basis().get_rotation_quaternion());
+		} else {
+			r_property = Quaternion();
+		}
+	} else if (p_name == "rotation") {
+		Variant variant = PropertyUtils::get_property_default_value(this, "transform", &valid);
+		if (valid && variant.get_type() == Variant::Type::TRANSFORM3D) {
+			r_property = Transform3D(variant).get_basis().get_euler_normalized(data.euler_rotation_order);
+		} else {
+			r_property = Vector3();
+		}
+	} else if (p_name == "position") {
+		Variant variant = PropertyUtils::get_property_default_value(this, "transform", &valid);
+		if (valid) {
+			r_property = Transform3D(variant).get_origin();
+		} else {
+			r_property = Vector3();
+		}
+	} else {
+		return false;
+	}
+	return true;
+}
+
 void Node3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_transform", "local"), &Node3D::set_transform);
 	ClassDB::bind_method(D_METHOD("get_transform"), &Node3D::get_transform);
-	ClassDB::bind_method(D_METHOD("set_translation", "translation"), &Node3D::set_translation);
-	ClassDB::bind_method(D_METHOD("get_translation"), &Node3D::get_translation);
+	ClassDB::bind_method(D_METHOD("set_position", "position"), &Node3D::set_position);
+	ClassDB::bind_method(D_METHOD("get_position"), &Node3D::get_position);
 	ClassDB::bind_method(D_METHOD("set_rotation", "euler"), &Node3D::set_rotation);
 	ClassDB::bind_method(D_METHOD("get_rotation"), &Node3D::get_rotation);
-	ClassDB::bind_method(D_METHOD("set_rotation_degrees", "euler_degrees"), &Node3D::set_rotation_degrees);
-	ClassDB::bind_method(D_METHOD("get_rotation_degrees"), &Node3D::get_rotation_degrees);
+	ClassDB::bind_method(D_METHOD("set_rotation_order", "order"), &Node3D::set_rotation_order);
+	ClassDB::bind_method(D_METHOD("get_rotation_order"), &Node3D::get_rotation_order);
+	ClassDB::bind_method(D_METHOD("set_rotation_edit_mode", "edit_mode"), &Node3D::set_rotation_edit_mode);
+	ClassDB::bind_method(D_METHOD("get_rotation_edit_mode"), &Node3D::get_rotation_edit_mode);
 	ClassDB::bind_method(D_METHOD("set_scale", "scale"), &Node3D::set_scale);
 	ClassDB::bind_method(D_METHOD("get_scale"), &Node3D::get_scale);
+	ClassDB::bind_method(D_METHOD("set_quaternion", "quaternion"), &Node3D::set_quaternion);
+	ClassDB::bind_method(D_METHOD("get_quaternion"), &Node3D::get_quaternion);
+	ClassDB::bind_method(D_METHOD("set_basis", "basis"), &Node3D::set_basis);
+	ClassDB::bind_method(D_METHOD("get_basis"), &Node3D::get_basis);
+
 	ClassDB::bind_method(D_METHOD("set_global_transform", "global"), &Node3D::set_global_transform);
 	ClassDB::bind_method(D_METHOD("get_global_transform"), &Node3D::get_global_transform);
-	ClassDB::bind_method(D_METHOD("get_parent_spatial"), &Node3D::get_parent_spatial);
+	ClassDB::bind_method(D_METHOD("set_global_position", "position"), &Node3D::set_global_position);
+	ClassDB::bind_method(D_METHOD("get_global_position"), &Node3D::get_global_position);
+	ClassDB::bind_method(D_METHOD("set_global_rotation", "radians"), &Node3D::set_global_rotation);
+	ClassDB::bind_method(D_METHOD("get_global_rotation"), &Node3D::get_global_rotation);
+
+	ClassDB::bind_method(D_METHOD("get_parent_node_3d"), &Node3D::get_parent_node_3d);
 	ClassDB::bind_method(D_METHOD("set_ignore_transform_notification", "enabled"), &Node3D::set_ignore_transform_notification);
 	ClassDB::bind_method(D_METHOD("set_as_top_level", "enable"), &Node3D::set_as_top_level);
 	ClassDB::bind_method(D_METHOD("is_set_as_top_level"), &Node3D::is_set_as_top_level);
@@ -715,11 +988,15 @@ void Node3D::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("force_update_transform"), &Node3D::force_update_transform);
 
-	ClassDB::bind_method(D_METHOD("_update_gizmo"), &Node3D::_update_gizmo);
+	ClassDB::bind_method(D_METHOD("set_visibility_parent", "path"), &Node3D::set_visibility_parent);
+	ClassDB::bind_method(D_METHOD("get_visibility_parent"), &Node3D::get_visibility_parent);
 
-	ClassDB::bind_method(D_METHOD("update_gizmo"), &Node3D::update_gizmo);
-	ClassDB::bind_method(D_METHOD("set_gizmo", "gizmo"), &Node3D::set_gizmo);
-	ClassDB::bind_method(D_METHOD("get_gizmo"), &Node3D::get_gizmo);
+	ClassDB::bind_method(D_METHOD("update_gizmos"), &Node3D::update_gizmos);
+	ClassDB::bind_method(D_METHOD("add_gizmo", "gizmo"), &Node3D::add_gizmo);
+	ClassDB::bind_method(D_METHOD("get_gizmos"), &Node3D::get_gizmos_bind);
+	ClassDB::bind_method(D_METHOD("clear_gizmos"), &Node3D::clear_gizmos);
+	ClassDB::bind_method(D_METHOD("set_subgizmo_selection", "gizmo", "id", "transform"), &Node3D::set_subgizmo_selection);
+	ClassDB::bind_method(D_METHOD("clear_subgizmo_selection"), &Node3D::clear_subgizmo_selection);
 
 	ClassDB::bind_method(D_METHOD("set_visible", "visible"), &Node3D::set_visible);
 	ClassDB::bind_method(D_METHOD("is_visible"), &Node3D::is_visible);
@@ -757,20 +1034,29 @@ void Node3D::_bind_methods() {
 	BIND_CONSTANT(NOTIFICATION_ENTER_WORLD);
 	BIND_CONSTANT(NOTIFICATION_EXIT_WORLD);
 	BIND_CONSTANT(NOTIFICATION_VISIBILITY_CHANGED);
+	BIND_CONSTANT(NOTIFICATION_LOCAL_TRANSFORM_CHANGED);
 
-	//ADD_PROPERTY( PropertyInfo(Variant::TRANSFORM,"transform/global",PROPERTY_HINT_NONE, "", PROPERTY_USAGE_EDITOR ), "set_global_transform", "get_global_transform") ;
+	BIND_ENUM_CONSTANT(ROTATION_EDIT_MODE_EULER);
+	BIND_ENUM_CONSTANT(ROTATION_EDIT_MODE_QUATERNION);
+	BIND_ENUM_CONSTANT(ROTATION_EDIT_MODE_BASIS);
+
 	ADD_GROUP("Transform", "");
-	ADD_PROPERTY(PropertyInfo(Variant::TRANSFORM, "global_transform", PROPERTY_HINT_NONE, "", 0), "set_global_transform", "get_global_transform");
-	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "translation", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_EDITOR), "set_translation", "get_translation");
-	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "rotation_degrees", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_EDITOR), "set_rotation_degrees", "get_rotation_degrees");
-	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "rotation", PROPERTY_HINT_NONE, "", 0), "set_rotation", "get_rotation");
-	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "scale", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_EDITOR), "set_scale", "get_scale");
+	ADD_PROPERTY(PropertyInfo(Variant::TRANSFORM3D, "transform", PROPERTY_HINT_NONE, "suffix:m", PROPERTY_USAGE_NO_EDITOR), "set_transform", "get_transform");
+	ADD_PROPERTY(PropertyInfo(Variant::TRANSFORM3D, "global_transform", PROPERTY_HINT_NONE, "suffix:m", PROPERTY_USAGE_NONE), "set_global_transform", "get_global_transform");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "position", PROPERTY_HINT_RANGE, "-99999,99999,0.001,or_greater,or_less,hide_slider,suffix:m", PROPERTY_USAGE_EDITOR), "set_position", "get_position");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "rotation", PROPERTY_HINT_RANGE, "-360,360,0.1,or_less,or_greater,radians", PROPERTY_USAGE_EDITOR), "set_rotation", "get_rotation");
+	ADD_PROPERTY(PropertyInfo(Variant::QUATERNION, "quaternion", PROPERTY_HINT_HIDE_QUATERNION_EDIT, "", PROPERTY_USAGE_EDITOR), "set_quaternion", "get_quaternion");
+	ADD_PROPERTY(PropertyInfo(Variant::BASIS, "basis", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_EDITOR), "set_basis", "get_basis");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "scale", PROPERTY_HINT_LINK, "", PROPERTY_USAGE_EDITOR), "set_scale", "get_scale");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "rotation_edit_mode", PROPERTY_HINT_ENUM, "Euler,Quaternion,Basis"), "set_rotation_edit_mode", "get_rotation_edit_mode");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "rotation_order", PROPERTY_HINT_ENUM, "XYZ,XZY,YXZ,YZX,ZXY,ZYX"), "set_rotation_order", "get_rotation_order");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "top_level"), "set_as_top_level", "is_set_as_top_level");
-	ADD_GROUP("Matrix", "");
-	ADD_PROPERTY(PropertyInfo(Variant::TRANSFORM, "transform", PROPERTY_HINT_NONE, ""), "set_transform", "get_transform");
+
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "global_position", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NONE), "set_global_position", "get_global_position");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR3, "global_rotation", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NONE), "set_global_rotation", "get_global_rotation");
 	ADD_GROUP("Visibility", "");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "visible"), "set_visible", "is_visible");
-	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "gizmo", PROPERTY_HINT_RESOURCE_TYPE, "Node3DGizmo", 0), "set_gizmo", "get_gizmo");
+	ADD_PROPERTY(PropertyInfo(Variant::NODE_PATH, "visibility_parent", PROPERTY_HINT_NODE_PATH_VALID_TYPES, "GeometryInstance3D"), "set_visibility_parent", "get_visibility_parent");
 
 	ADD_SIGNAL(MethodInfo("visibility_changed"));
 }

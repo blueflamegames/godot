@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -34,6 +34,8 @@
 #include "core/os/memory.h"
 #include "core/os/spin_lock.h"
 #include "core/typedefs.h"
+
+#include <type_traits>
 
 // PagedArray is used mainly for filling a very large array from multiple threads efficiently and without causing major fragmentation
 
@@ -197,7 +199,7 @@ public:
 		uint32_t page = count >> page_size_shift;
 		uint32_t offset = count & page_size_mask;
 
-		if (!__has_trivial_constructor(T)) {
+		if (!std::is_trivially_constructible<T>::value) {
 			memnew_placement(&page_data[page][offset], T(p_value));
 		} else {
 			page_data[page][offset] = p_value;
@@ -209,7 +211,7 @@ public:
 	_FORCE_INLINE_ void pop_back() {
 		ERR_FAIL_COND(count == 0);
 
-		if (!__has_trivial_destructor(T)) {
+		if (!std::is_trivially_destructible<T>::value) {
 			uint32_t page = (count - 1) >> page_size_shift;
 			uint32_t offset = (count - 1) & page_size_mask;
 			page_data[page][offset].~T();
@@ -226,7 +228,7 @@ public:
 
 	void clear() {
 		//destruct if needed
-		if (!__has_trivial_destructor(T)) {
+		if (!std::is_trivially_destructible<T>::value) {
 			for (uint64_t i = 0; i < count; i++) {
 				uint32_t page = i >> page_size_shift;
 				uint32_t offset = i & page_size_mask;
@@ -266,7 +268,7 @@ public:
 		uint32_t remainder = count & page_size_mask;
 
 		T *remainder_page = nullptr;
-		uint32_t remainder_page_id;
+		uint32_t remainder_page_id = 0;
 
 		if (remainder > 0) {
 			uint32_t last_page = _get_pages_in_use() - 1;
@@ -309,13 +311,13 @@ public:
 				uint32_t to_copy = MIN(page_size - new_remainder, remainder);
 
 				for (uint32_t i = 0; i < to_copy; i++) {
-					if (!__has_trivial_constructor(T)) {
+					if (!std::is_trivially_constructible<T>::value) {
 						memnew_placement(&dst_page[i + new_remainder], T(remainder_page[i + remainder - to_copy]));
 					} else {
 						dst_page[i + new_remainder] = remainder_page[i + remainder - to_copy];
 					}
 
-					if (!__has_trivial_destructor(T)) {
+					if (!std::is_trivially_destructible<T>::value) {
 						remainder_page[i + remainder - to_copy].~T();
 					}
 				}

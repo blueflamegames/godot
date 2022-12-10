@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -32,136 +32,19 @@
 #define CANVAS_ITEM_H
 
 #include "scene/main/node.h"
-#include "scene/main/scene_tree.h"
-#include "scene/resources/material.h"
-#include "scene/resources/multimesh.h"
-#include "scene/resources/shader.h"
-#include "scene/resources/texture.h"
-#include "servers/text_server.h"
+#include "scene/resources/canvas_item_material.h"
+#include "scene/resources/font.h"
 
 class CanvasLayer;
-class Viewport;
-class Font;
-
+class MultiMesh;
 class StyleBox;
-
-class CanvasItemMaterial : public Material {
-	GDCLASS(CanvasItemMaterial, Material);
-
-public:
-	enum BlendMode {
-		BLEND_MODE_MIX,
-		BLEND_MODE_ADD,
-		BLEND_MODE_SUB,
-		BLEND_MODE_MUL,
-		BLEND_MODE_PREMULT_ALPHA,
-		BLEND_MODE_DISABLED
-	};
-
-	enum LightMode {
-		LIGHT_MODE_NORMAL,
-		LIGHT_MODE_UNSHADED,
-		LIGHT_MODE_LIGHT_ONLY
-	};
-
-private:
-	union MaterialKey {
-		struct {
-			uint32_t blend_mode : 4;
-			uint32_t light_mode : 4;
-			uint32_t particles_animation : 1;
-			uint32_t invalid_key : 1;
-		};
-
-		uint32_t key = 0;
-
-		bool operator<(const MaterialKey &p_key) const {
-			return key < p_key.key;
-		}
-	};
-
-	struct ShaderNames {
-		StringName particles_anim_h_frames;
-		StringName particles_anim_v_frames;
-		StringName particles_anim_loop;
-	};
-
-	static ShaderNames *shader_names;
-
-	struct ShaderData {
-		RID shader;
-		int users = 0;
-	};
-
-	static Map<MaterialKey, ShaderData> shader_map;
-
-	MaterialKey current_key;
-
-	_FORCE_INLINE_ MaterialKey _compute_key() const {
-		MaterialKey mk;
-		mk.key = 0;
-		mk.blend_mode = blend_mode;
-		mk.light_mode = light_mode;
-		mk.particles_animation = particles_animation;
-		return mk;
-	}
-
-	static Mutex material_mutex;
-	static SelfList<CanvasItemMaterial>::List *dirty_materials;
-	SelfList<CanvasItemMaterial> element;
-
-	void _update_shader();
-	_FORCE_INLINE_ void _queue_shader_change();
-	_FORCE_INLINE_ bool _is_shader_dirty() const;
-
-	BlendMode blend_mode = BLEND_MODE_MIX;
-	LightMode light_mode = LIGHT_MODE_NORMAL;
-	bool particles_animation = false;
-
-	// Initialized in the constructor.
-	int particles_anim_h_frames;
-	int particles_anim_v_frames;
-	bool particles_anim_loop;
-
-protected:
-	static void _bind_methods();
-	void _validate_property(PropertyInfo &property) const override;
-
-public:
-	void set_blend_mode(BlendMode p_blend_mode);
-	BlendMode get_blend_mode() const;
-
-	void set_light_mode(LightMode p_light_mode);
-	LightMode get_light_mode() const;
-
-	void set_particles_animation(bool p_particles_anim);
-	bool get_particles_animation() const;
-
-	void set_particles_anim_h_frames(int p_frames);
-	int get_particles_anim_h_frames() const;
-	void set_particles_anim_v_frames(int p_frames);
-	int get_particles_anim_v_frames() const;
-
-	void set_particles_anim_loop(bool p_loop);
-	bool get_particles_anim_loop() const;
-
-	static void init_shaders();
-	static void finish_shaders();
-	static void flush_changes();
-
-	virtual RID get_shader_rid() const override;
-
-	virtual Shader::Mode get_shader_mode() const override;
-
-	CanvasItemMaterial();
-	virtual ~CanvasItemMaterial();
-};
-
-VARIANT_ENUM_CAST(CanvasItemMaterial::BlendMode)
-VARIANT_ENUM_CAST(CanvasItemMaterial::LightMode)
+class Window;
+class World2D;
 
 class CanvasItem : public Node {
 	GDCLASS(CanvasItem, Node);
+
+	friend class CanvasLayer;
 
 public:
 	enum TextureFilter {
@@ -183,11 +66,19 @@ public:
 		TEXTURE_REPEAT_MAX,
 	};
 
+	enum ClipChildrenMode {
+		CLIP_CHILDREN_DISABLED,
+		CLIP_CHILDREN_ONLY,
+		CLIP_CHILDREN_AND_DRAW,
+		CLIP_CHILDREN_MAX,
+	};
+
 private:
-	mutable SelfList<Node> xform_change;
+	mutable SelfList<Node>
+			xform_change;
 
 	RID canvas_item;
-	String group;
+	StringName canvas_group;
 
 	CanvasLayer *canvas_layer = nullptr;
 
@@ -198,11 +89,15 @@ private:
 	List<CanvasItem *>::Element *C = nullptr;
 
 	int light_mask = 1;
+	uint32_t visibility_layer = 1;
+
+	int z_index = 0;
+	bool z_relative = true;
+	bool y_sort_enabled = false;
 
 	Window *window = nullptr;
-	bool first_draw = false;
 	bool visible = true;
-	bool clip_children = false;
+	bool parent_visible_in_tree = false;
 	bool pending_update = false;
 	bool top_level = false;
 	bool drawing = false;
@@ -211,6 +106,8 @@ private:
 	bool use_parent_material = false;
 	bool notify_local_transform = false;
 	bool notify_transform = false;
+
+	ClipChildrenMode clip_children_mode = CLIP_CHILDREN_DISABLED;
 
 	RS::CanvasItemTextureFilter texture_filter_cache = RS::CANVAS_ITEM_TEXTURE_FILTER_LINEAR;
 	RS::CanvasItemTextureRepeat texture_repeat_cache = RS::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED;
@@ -224,9 +121,10 @@ private:
 
 	void _top_level_raise_self();
 
-	void _propagate_visibility_changed(bool p_visible);
+	void _propagate_visibility_changed(bool p_parent_visible_in_tree);
+	void _handle_visibility_change(bool p_visible);
 
-	void _update_callback();
+	void _redraw_callback();
 
 	void _enter_canvas();
 	void _exit_canvas();
@@ -235,12 +133,11 @@ private:
 
 	void _notify_transform(CanvasItem *p_node);
 
-	void _set_on_top(bool p_on_top) { set_draw_behind_parent(!p_on_top); }
-	bool _is_on_top() const { return !is_draw_behind_parent_enabled(); }
-
 	static CanvasItem *current_item_drawn;
 	friend class Viewport;
+	void _refresh_texture_repeat_cache();
 	void _update_texture_repeat_changed(bool p_propagate);
+	void _refresh_texture_filter_cache();
 	void _update_texture_filter_changed(bool p_propagate);
 
 protected:
@@ -259,6 +156,7 @@ protected:
 	void _notification(int p_what);
 	static void _bind_methods();
 
+	GDVIRTUAL0(_draw)
 public:
 	enum {
 		NOTIFICATION_TRANSFORM_CHANGED = SceneTree::NOTIFICATION_TRANSFORM_CHANGED, //unique
@@ -315,10 +213,11 @@ public:
 	void show();
 	void hide();
 
-	void update();
+	void queue_redraw();
+	void move_to_front();
 
-	void set_clip_children(bool p_enabled);
-	bool is_clipping_children() const;
+	void set_clip_children_mode(ClipChildrenMode p_clip_mode);
+	ClipChildrenMode get_clip_children_mode() const;
 
 	virtual void set_light_mask(int p_light_mask);
 	int get_light_mask() const;
@@ -329,9 +228,27 @@ public:
 	void set_self_modulate(const Color &p_self_modulate);
 	Color get_self_modulate() const;
 
+	void set_visibility_layer(uint32_t p_visibility_layer);
+	uint32_t get_visibility_layer() const;
+
+	void set_visibility_layer_bit(uint32_t p_visibility_layer, bool p_enable);
+	bool get_visibility_layer_bit(uint32_t p_visibility_layer) const;
+
+	/* ORDERING */
+
+	void set_z_index(int p_z);
+	int get_z_index() const;
+
+	void set_z_as_relative(bool p_enabled);
+	bool is_z_relative() const;
+
+	virtual void set_y_sort_enabled(bool p_enabled);
+	virtual bool is_y_sort_enabled() const;
+
 	/* DRAWING API */
 
-	void draw_line(const Point2 &p_from, const Point2 &p_to, const Color &p_color, real_t p_width = 1.0);
+	void draw_dashed_line(const Point2 &p_from, const Point2 &p_to, const Color &p_color, real_t p_width = 1.0, real_t p_dash = 2.0);
+	void draw_line(const Point2 &p_from, const Point2 &p_to, const Color &p_color, real_t p_width = 1.0, bool p_antialiased = false);
 	void draw_polyline(const Vector<Point2> &p_points, const Color &p_color, real_t p_width = 1.0, bool p_antialiased = false);
 	void draw_polyline_colors(const Vector<Point2> &p_points, const Vector<Color> &p_colors, real_t p_width = 1.0, bool p_antialiased = false);
 	void draw_arc(const Vector2 &p_center, real_t p_radius, real_t p_start_angle, real_t p_end_angle, int p_point_count, const Color &p_color, real_t p_width = 1.0, bool p_antialiased = false);
@@ -342,6 +259,8 @@ public:
 	void draw_texture(const Ref<Texture2D> &p_texture, const Point2 &p_pos, const Color &p_modulate = Color(1, 1, 1, 1));
 	void draw_texture_rect(const Ref<Texture2D> &p_texture, const Rect2 &p_rect, bool p_tile = false, const Color &p_modulate = Color(1, 1, 1), bool p_transpose = false);
 	void draw_texture_rect_region(const Ref<Texture2D> &p_texture, const Rect2 &p_rect, const Rect2 &p_src_rect, const Color &p_modulate = Color(1, 1, 1), bool p_transpose = false, bool p_clip_uv = false);
+	void draw_msdf_texture_rect_region(const Ref<Texture2D> &p_texture, const Rect2 &p_rect, const Rect2 &p_src_rect, const Color &p_modulate = Color(1, 1, 1), double p_outline = 0.0, double p_pixel_range = 4.0);
+	void draw_lcd_texture_rect_region(const Ref<Texture2D> &p_texture, const Rect2 &p_rect, const Rect2 &p_src_rect, const Color &p_modulate = Color(1, 1, 1));
 	void draw_style_box(const Ref<StyleBox> &p_style_box, const Rect2 &p_rect);
 	void draw_primitive(const Vector<Point2> &p_points, const Vector<Color> &p_colors, const Vector<Point2> &p_uvs, Ref<Texture2D> p_texture = Ref<Texture2D>(), real_t p_width = 1);
 	void draw_polygon(const Vector<Point2> &p_points, const Vector<Color> &p_colors, const Vector<Point2> &p_uvs = Vector<Point2>(), Ref<Texture2D> p_texture = Ref<Texture2D>());
@@ -350,12 +269,19 @@ public:
 	void draw_mesh(const Ref<Mesh> &p_mesh, const Ref<Texture2D> &p_texture, const Transform2D &p_transform = Transform2D(), const Color &p_modulate = Color(1, 1, 1));
 	void draw_multimesh(const Ref<MultiMesh> &p_multimesh, const Ref<Texture2D> &p_texture);
 
-	void draw_string(const Ref<Font> &p_font, const Point2 &p_pos, const String &p_text, HAlign p_align = HALIGN_LEFT, real_t p_width = -1, int p_size = -1, const Color &p_modulate = Color(1, 1, 1), int p_outline_size = 0, const Color &p_outline_modulate = Color(1, 1, 1, 0), uint8_t p_flags = TextServer::JUSTIFICATION_KASHIDA | TextServer::JUSTIFICATION_WORD_BOUND) const;
-	void draw_multiline_string(const Ref<Font> &p_font, const Point2 &p_pos, const String &p_text, HAlign p_align = HALIGN_LEFT, real_t p_width = -1, int p_max_lines = -1, int p_size = -1, const Color &p_modulate = Color(1, 1, 1), int p_outline_size = 0, const Color &p_outline_modulate = Color(1, 1, 1, 0), uint8_t p_flags = TextServer::BREAK_MANDATORY | TextServer::BREAK_WORD_BOUND | TextServer::JUSTIFICATION_KASHIDA | TextServer::JUSTIFICATION_WORD_BOUND) const;
-	real_t draw_char(const Ref<Font> &p_font, const Point2 &p_pos, const String &p_char, const String &p_next = "", int p_size = -1, const Color &p_modulate = Color(1, 1, 1), int p_outline_size = 0, const Color &p_outline_modulate = Color(1, 1, 1, 0)) const;
+	void draw_string(const Ref<Font> &p_font, const Point2 &p_pos, const String &p_text, HorizontalAlignment p_alignment = HORIZONTAL_ALIGNMENT_LEFT, float p_width = -1, int p_font_size = Font::DEFAULT_FONT_SIZE, const Color &p_modulate = Color(1.0, 1.0, 1.0), BitField<TextServer::JustificationFlag> p_jst_flags = TextServer::JUSTIFICATION_KASHIDA | TextServer::JUSTIFICATION_WORD_BOUND, TextServer::Direction p_direction = TextServer::DIRECTION_AUTO, TextServer::Orientation p_orientation = TextServer::ORIENTATION_HORIZONTAL) const;
+	void draw_multiline_string(const Ref<Font> &p_font, const Point2 &p_pos, const String &p_text, HorizontalAlignment p_alignment = HORIZONTAL_ALIGNMENT_LEFT, float p_width = -1, int p_font_size = Font::DEFAULT_FONT_SIZE, int p_max_lines = -1, const Color &p_modulate = Color(1.0, 1.0, 1.0), BitField<TextServer::LineBreakFlag> p_brk_flags = TextServer::BREAK_MANDATORY | TextServer::BREAK_WORD_BOUND, BitField<TextServer::JustificationFlag> p_jst_flags = TextServer::JUSTIFICATION_KASHIDA | TextServer::JUSTIFICATION_WORD_BOUND, TextServer::Direction p_direction = TextServer::DIRECTION_AUTO, TextServer::Orientation p_orientation = TextServer::ORIENTATION_HORIZONTAL) const;
+
+	void draw_string_outline(const Ref<Font> &p_font, const Point2 &p_pos, const String &p_text, HorizontalAlignment p_alignment = HORIZONTAL_ALIGNMENT_LEFT, float p_width = -1, int p_size = 1, int p_font_size = Font::DEFAULT_FONT_SIZE, const Color &p_modulate = Color(1.0, 1.0, 1.0), BitField<TextServer::JustificationFlag> p_jst_flags = TextServer::JUSTIFICATION_KASHIDA | TextServer::JUSTIFICATION_WORD_BOUND, TextServer::Direction p_direction = TextServer::DIRECTION_AUTO, TextServer::Orientation p_orientation = TextServer::ORIENTATION_HORIZONTAL) const;
+	void draw_multiline_string_outline(const Ref<Font> &p_font, const Point2 &p_pos, const String &p_text, HorizontalAlignment p_alignment = HORIZONTAL_ALIGNMENT_LEFT, float p_width = -1, int p_font_size = Font::DEFAULT_FONT_SIZE, int p_max_lines = -1, int p_size = 1, const Color &p_modulate = Color(1.0, 1.0, 1.0), BitField<TextServer::LineBreakFlag> p_brk_flags = TextServer::BREAK_MANDATORY | TextServer::BREAK_WORD_BOUND, BitField<TextServer::JustificationFlag> p_jst_flags = TextServer::JUSTIFICATION_KASHIDA | TextServer::JUSTIFICATION_WORD_BOUND, TextServer::Direction p_direction = TextServer::DIRECTION_AUTO, TextServer::Orientation p_orientation = TextServer::ORIENTATION_HORIZONTAL) const;
+
+	void draw_char(const Ref<Font> &p_font, const Point2 &p_pos, const String &p_char, int p_font_size = Font::DEFAULT_FONT_SIZE, const Color &p_modulate = Color(1.0, 1.0, 1.0)) const;
+	void draw_char_outline(const Ref<Font> &p_font, const Point2 &p_pos, const String &p_char, int p_font_size = Font::DEFAULT_FONT_SIZE, int p_size = 1, const Color &p_modulate = Color(1.0, 1.0, 1.0)) const;
 
 	void draw_set_transform(const Point2 &p_offset, real_t p_rot = 0.0, const Size2 &p_scale = Size2(1.0, 1.0));
 	void draw_set_transform_matrix(const Transform2D &p_matrix);
+	void draw_animation_slice(double p_animation_length, double p_slice_begin, double p_slice_end, double p_offset = 0);
+	void draw_end_animation();
 
 	static CanvasItem *get_current_item_drawn();
 
@@ -417,6 +343,9 @@ public:
 	virtual void set_texture_repeat(TextureRepeat p_texture_repeat);
 	TextureRepeat get_texture_repeat() const;
 
+	TextureFilter get_texture_filter_in_tree();
+	TextureRepeat get_texture_repeat_in_tree();
+
 	// Used by control nodes to retrieve the parent's anchorable area
 	virtual Rect2 get_anchorable_rect() const { return Rect2(0, 0, 0, 0); };
 
@@ -428,6 +357,7 @@ public:
 
 VARIANT_ENUM_CAST(CanvasItem::TextureFilter)
 VARIANT_ENUM_CAST(CanvasItem::TextureRepeat)
+VARIANT_ENUM_CAST(CanvasItem::ClipChildrenMode)
 
 class CanvasTexture : public Texture2D {
 	GDCLASS(CanvasTexture, Texture2D);

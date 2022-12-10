@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,7 +31,7 @@
 #ifndef EDITOR_DIR_DIALOG_H
 #define EDITOR_DIR_DIALOG_H
 
-#include "core/os/dir_access.h"
+#include "core/io/dir_access.h"
 #include "editor/editor_file_system.h"
 #include "scene/gui/dialogs.h"
 #include "scene/gui/tree.h"
@@ -39,15 +39,15 @@
 class EditorDirDialog : public ConfirmationDialog {
 	GDCLASS(EditorDirDialog, ConfirmationDialog);
 
-	ConfirmationDialog *makedialog;
-	LineEdit *makedirname;
-	AcceptDialog *mkdirerr;
+	ConfirmationDialog *makedialog = nullptr;
+	LineEdit *makedirname = nullptr;
+	AcceptDialog *mkdirerr = nullptr;
 
-	Button *makedir;
-	Set<String> opened_paths;
+	Button *makedir = nullptr;
+	HashSet<String> opened_paths;
 
-	Tree *tree;
-	bool updating;
+	Tree *tree = nullptr;
+	bool updating = false;
 
 	void _item_collapsed(Object *p_item);
 	void _item_activated();
@@ -58,7 +58,7 @@ class EditorDirDialog : public ConfirmationDialog {
 
 	void ok_pressed() override;
 
-	bool must_reload;
+	bool must_reload = false;
 
 protected:
 	void _notification(int p_what);

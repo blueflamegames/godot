@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,7 +31,8 @@
 #ifndef AUDIO_STREAM_PLAYER_3D_H
 #define AUDIO_STREAM_PLAYER_3D_H
 
-#include "core/templates/safe_refcount.h"
+#include "core/os/mutex.h"
+#include "scene/3d/area_3d.h"
 #include "scene/3d/node_3d.h"
 #include "scene/3d/velocity_tracker_3d.h"
 #include "servers/audio/audio_filter_sw.h"
@@ -50,11 +51,6 @@ public:
 		ATTENUATION_DISABLED,
 	};
 
-	enum OutOfRangeMode {
-		OUT_OF_RANGE_MIX,
-		OUT_OF_RANGE_PAUSE,
-	};
-
 	enum DopplerTracking {
 		DOPPLER_TRACKING_DISABLED,
 		DOPPLER_TRACKING_IDLE_STEP,
@@ -68,51 +64,37 @@ private:
 
 	};
 
-	struct Output {
-		AudioFilterSW filter;
-		AudioFilterSW::Processor filter_process[8];
-		AudioFrame vol[4];
-		float filter_gain = 0.0;
-		float pitch_scale = 0.0;
-		int bus_index = -1;
-		int reverb_bus_index = -1;
-		AudioFrame reverb_vol[4];
-		Viewport *viewport = nullptr; //pointer only used for reference to previous mix
-	};
-
-	Output outputs[MAX_OUTPUTS];
-	SafeNumeric<int> output_count;
-	SafeFlag output_ready;
-
-	//these are used by audio thread to have a reference of previous volumes (for ramping volume and avoiding clicks)
-	Output prev_outputs[MAX_OUTPUTS];
-	int prev_output_count = 0;
-
-	Ref<AudioStreamPlayback> stream_playback;
+	Vector<Ref<AudioStreamPlayback>> stream_playbacks;
 	Ref<AudioStream> stream;
-	Vector<AudioFrame> mix_buffer;
 
-	SafeNumeric<float> setseek{ -1.0 };
-	SafeFlag active;
+	SafeFlag active{ false };
 	SafeNumeric<float> setplay{ -1.0 };
 
 	AttenuationModel attenuation_model = ATTENUATION_INVERSE_DISTANCE;
-	float unit_db = 0.0;
-	float unit_size = 1.0;
+	float volume_db = 0.0;
+	float unit_size = 10.0;
 	float max_db = 3.0;
 	float pitch_scale = 1.0;
+	// Internally used to take doppler tracking into account.
+	float actual_pitch_scale = 1.0;
 	bool autoplay = false;
-	bool stream_paused = false;
-	bool stream_paused_fade_in = false;
-	bool stream_paused_fade_out = false;
-	StringName bus;
+	StringName bus = SNAME("Master");
+	int max_polyphony = 1;
 
-	static void _calc_output_vol(const Vector3 &source_dir, real_t tightness, Output &output);
-	void _mix_audio();
-	static void _mix_audios(void *self) { reinterpret_cast<AudioStreamPlayer3D *>(self)->_mix_audio(); }
+	uint64_t last_mix_count = -1;
+	bool force_update_panning = false;
+
+	static void _calc_output_vol(const Vector3 &source_dir, real_t tightness, Vector<AudioFrame> &output);
+
+	void _calc_reverb_vol(Area3D *area, Vector3 listener_area_pos, Vector<AudioFrame> direct_path_vol, Vector<AudioFrame> &reverb_vol);
+
+	static void _listener_changed_cb(void *self) { reinterpret_cast<AudioStreamPlayer3D *>(self)->force_update_panning = true; }
 
 	void _set_playing(bool p_enable);
 	bool _is_active() const;
+	StringName _get_actual_bus();
+	Area3D *_get_overriding_area();
+	Vector<AudioFrame> _update_panning();
 
 	void _bus_layout_changed();
 
@@ -124,18 +106,21 @@ private:
 	float attenuation_filter_cutoff_hz = 5000.0;
 	float attenuation_filter_db = -24.0;
 
+	float linear_attenuation = 0;
+
 	float max_distance = 0.0;
 
 	Ref<VelocityTracker3D> velocity_tracker;
 
 	DopplerTracking doppler_tracking = DOPPLER_TRACKING_DISABLED;
 
-	OutOfRangeMode out_of_range_mode = OUT_OF_RANGE_MIX;
-
 	float _get_attenuation_db(float p_distance) const;
 
+	float panning_strength = 1.0f;
+	float cached_global_panning_strength = 0.5f;
+
 protected:
-	void _validate_property(PropertyInfo &property) const override;
+	void _validate_property(PropertyInfo &p_property) const;
 	void _notification(int p_what);
 	static void _bind_methods();
 
@@ -143,8 +128,8 @@ public:
 	void set_stream(Ref<AudioStream> p_stream);
 	Ref<AudioStream> get_stream() const;
 
-	void set_unit_db(float p_volume);
-	float get_unit_db() const;
+	void set_volume_db(float p_volume);
+	float get_volume_db() const;
 
 	void set_unit_size(float p_volume);
 	float get_unit_size() const;
@@ -163,6 +148,9 @@ public:
 
 	void set_bus(const StringName &p_bus);
 	StringName get_bus() const;
+
+	void set_max_polyphony(int p_max_polyphony);
+	int get_max_polyphony() const;
 
 	void set_autoplay(bool p_enable);
 	bool is_autoplay_enabled();
@@ -191,14 +179,14 @@ public:
 	void set_attenuation_model(AttenuationModel p_model);
 	AttenuationModel get_attenuation_model() const;
 
-	void set_out_of_range_mode(OutOfRangeMode p_mode);
-	OutOfRangeMode get_out_of_range_mode() const;
-
 	void set_doppler_tracking(DopplerTracking p_tracking);
 	DopplerTracking get_doppler_tracking() const;
 
 	void set_stream_paused(bool p_pause);
 	bool get_stream_paused() const;
+
+	void set_panning_strength(float p_panning_strength);
+	float get_panning_strength() const;
 
 	Ref<AudioStreamPlayback> get_stream_playback();
 
@@ -207,6 +195,6 @@ public:
 };
 
 VARIANT_ENUM_CAST(AudioStreamPlayer3D::AttenuationModel)
-VARIANT_ENUM_CAST(AudioStreamPlayer3D::OutOfRangeMode)
 VARIANT_ENUM_CAST(AudioStreamPlayer3D::DopplerTracking)
+
 #endif // AUDIO_STREAM_PLAYER_3D_H

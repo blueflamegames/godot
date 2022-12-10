@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -53,9 +53,14 @@ Size2 SubViewportContainer::get_minimum_size() const {
 }
 
 void SubViewportContainer::set_stretch(bool p_enable) {
+	if (stretch == p_enable) {
+		return;
+	}
+
 	stretch = p_enable;
+	update_minimum_size();
 	queue_sort();
-	update();
+	queue_redraw();
 }
 
 bool SubViewportContainer::is_stretch_enabled() const {
@@ -83,70 +88,99 @@ void SubViewportContainer::set_stretch_shrink(int p_shrink) {
 		c->set_size(get_size() / shrink);
 	}
 
-	update();
+	queue_redraw();
 }
 
 int SubViewportContainer::get_stretch_shrink() const {
 	return shrink;
 }
 
+Vector<int> SubViewportContainer::get_allowed_size_flags_horizontal() const {
+	return Vector<int>();
+}
+
+Vector<int> SubViewportContainer::get_allowed_size_flags_vertical() const {
+	return Vector<int>();
+}
+
 void SubViewportContainer::_notification(int p_what) {
-	if (p_what == NOTIFICATION_RESIZED) {
-		if (!stretch) {
-			return;
-		}
-
-		for (int i = 0; i < get_child_count(); i++) {
-			SubViewport *c = Object::cast_to<SubViewport>(get_child(i));
-			if (!c) {
-				continue;
+	switch (p_what) {
+		case NOTIFICATION_RESIZED: {
+			if (!stretch) {
+				return;
 			}
 
-			c->set_size(get_size() / shrink);
-		}
-	}
+			for (int i = 0; i < get_child_count(); i++) {
+				SubViewport *c = Object::cast_to<SubViewport>(get_child(i));
+				if (!c) {
+					continue;
+				}
 
-	if (p_what == NOTIFICATION_ENTER_TREE || p_what == NOTIFICATION_VISIBILITY_CHANGED) {
-		for (int i = 0; i < get_child_count(); i++) {
-			SubViewport *c = Object::cast_to<SubViewport>(get_child(i));
-			if (!c) {
-				continue;
+				c->set_size(get_size() / shrink);
 			}
+		} break;
 
-			if (is_visible_in_tree()) {
-				c->set_update_mode(SubViewport::UPDATE_ALWAYS);
-			} else {
-				c->set_update_mode(SubViewport::UPDATE_DISABLED);
+		case NOTIFICATION_ENTER_TREE:
+		case NOTIFICATION_VISIBILITY_CHANGED: {
+			for (int i = 0; i < get_child_count(); i++) {
+				SubViewport *c = Object::cast_to<SubViewport>(get_child(i));
+				if (!c) {
+					continue;
+				}
+
+				if (is_visible_in_tree()) {
+					c->set_update_mode(SubViewport::UPDATE_ALWAYS);
+				} else {
+					c->set_update_mode(SubViewport::UPDATE_DISABLED);
+				}
+
+				c->set_handle_input_locally(false); //do not handle input locally here
 			}
+		} break;
 
-			c->set_handle_input_locally(false); //do not handle input locally here
-		}
-	}
+		case NOTIFICATION_DRAW: {
+			for (int i = 0; i < get_child_count(); i++) {
+				SubViewport *c = Object::cast_to<SubViewport>(get_child(i));
+				if (!c) {
+					continue;
+				}
 
-	if (p_what == NOTIFICATION_DRAW) {
-		for (int i = 0; i < get_child_count(); i++) {
-			SubViewport *c = Object::cast_to<SubViewport>(get_child(i));
-			if (!c) {
-				continue;
+				if (stretch) {
+					draw_texture_rect(c->get_texture(), Rect2(Vector2(), get_size()));
+				} else {
+					draw_texture_rect(c->get_texture(), Rect2(Vector2(), c->get_size()));
+				}
 			}
+		} break;
 
-			if (stretch) {
-				draw_texture_rect(c->get_texture(), Rect2(Vector2(), get_size()));
-			} else {
-				draw_texture_rect(c->get_texture(), Rect2(Vector2(), c->get_size()));
-			}
-		}
+		case NOTIFICATION_MOUSE_ENTER: {
+			_notify_viewports(NOTIFICATION_VP_MOUSE_ENTER);
+		} break;
+
+		case NOTIFICATION_MOUSE_EXIT: {
+			_notify_viewports(NOTIFICATION_VP_MOUSE_EXIT);
+		} break;
 	}
 }
 
-void SubViewportContainer::_input(const Ref<InputEvent> &p_event) {
+void SubViewportContainer::_notify_viewports(int p_notification) {
+	for (int i = 0; i < get_child_count(); i++) {
+		SubViewport *c = Object::cast_to<SubViewport>(get_child(i));
+		if (!c) {
+			continue;
+		}
+		c->notification(p_notification);
+	}
+}
+
+void SubViewportContainer::input(const Ref<InputEvent> &p_event) {
 	ERR_FAIL_COND(p_event.is_null());
 
 	if (Engine::get_singleton()->is_editor_hint()) {
 		return;
 	}
 
-	Transform2D xform = get_global_transform();
+	Transform2D xform = get_global_transform_with_canvas();
 
 	if (stretch) {
 		Transform2D scale_xf;
@@ -162,18 +196,18 @@ void SubViewportContainer::_input(const Ref<InputEvent> &p_event) {
 			continue;
 		}
 
-		c->input(ev);
+		c->push_input(ev);
 	}
 }
 
-void SubViewportContainer::_unhandled_input(const Ref<InputEvent> &p_event) {
+void SubViewportContainer::unhandled_input(const Ref<InputEvent> &p_event) {
 	ERR_FAIL_COND(p_event.is_null());
 
 	if (Engine::get_singleton()->is_editor_hint()) {
 		return;
 	}
 
-	Transform2D xform = get_global_transform();
+	Transform2D xform = get_global_transform_with_canvas();
 
 	if (stretch) {
 		Transform2D scale_xf;
@@ -189,13 +223,40 @@ void SubViewportContainer::_unhandled_input(const Ref<InputEvent> &p_event) {
 			continue;
 		}
 
-		c->unhandled_input(ev);
+		c->push_unhandled_input(ev);
 	}
+}
+
+void SubViewportContainer::add_child_notify(Node *p_child) {
+	if (Object::cast_to<SubViewport>(p_child)) {
+		queue_redraw();
+	}
+}
+
+void SubViewportContainer::remove_child_notify(Node *p_child) {
+	if (Object::cast_to<SubViewport>(p_child)) {
+		queue_redraw();
+	}
+}
+
+PackedStringArray SubViewportContainer::get_configuration_warnings() const {
+	PackedStringArray warnings = Node::get_configuration_warnings();
+
+	bool has_viewport = false;
+	for (int i = 0; i < get_child_count(); i++) {
+		if (Object::cast_to<SubViewport>(get_child(i))) {
+			has_viewport = true;
+			break;
+		}
+	}
+	if (!has_viewport) {
+		warnings.push_back(RTR("This node doesn't have a SubViewport as child, so it can't display its intended content.\nConsider adding a SubViewport as a child to provide something displayable."));
+	}
+
+	return warnings;
 }
 
 void SubViewportContainer::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("_unhandled_input", "event"), &SubViewportContainer::_unhandled_input);
-	ClassDB::bind_method(D_METHOD("_input", "event"), &SubViewportContainer::_input);
 	ClassDB::bind_method(D_METHOD("set_stretch", "enable"), &SubViewportContainer::set_stretch);
 	ClassDB::bind_method(D_METHOD("is_stretch_enabled"), &SubViewportContainer::is_stretch_enabled);
 

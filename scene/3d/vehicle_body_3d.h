@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -28,8 +28,8 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 
-#ifndef VEHICLE_BODY_H
-#define VEHICLE_BODY_H
+#ifndef VEHICLE_BODY_3D_H
+#define VEHICLE_BODY_3D_H
 
 #include "scene/3d/physics_body_3d.h"
 
@@ -40,8 +40,8 @@ class VehicleWheel3D : public Node3D {
 
 	friend class VehicleBody3D;
 
-	Transform m_worldTransform;
-	Transform local_xform;
+	Transform3D m_worldTransform;
+	Transform3D local_xform;
 	bool engine_traction = false;
 	bool steers = false;
 
@@ -129,6 +129,8 @@ public:
 
 	bool is_in_contact() const;
 
+	Node3D *get_contact_body() const;
+
 	void set_roll_influence(real_t p_value);
 	real_t get_roll_influence() const;
 
@@ -145,7 +147,7 @@ public:
 	void set_steering(real_t p_steering);
 	real_t get_steering() const;
 
-	String get_configuration_warning() const override;
+	PackedStringArray get_configuration_warnings() const override;
 
 	VehicleWheel3D();
 };
@@ -160,7 +162,7 @@ class VehicleBody3D : public RigidBody3D {
 	real_t m_steeringValue = 0.0;
 	real_t m_currentVehicleSpeedKmHour = 0.0;
 
-	Set<RID> exclude;
+	HashSet<RID> exclude;
 
 	Vector<Vector3> m_forwardWS;
 	Vector<Vector3> m_axle;
@@ -192,7 +194,8 @@ class VehicleBody3D : public RigidBody3D {
 
 	static void _bind_methods();
 
-	void _direct_state_changed(Object *p_state) override;
+	static void _body_state_changed_callback(void *p_instance, PhysicsDirectBodyState3D *p_state);
+	virtual void _body_state_changed(PhysicsDirectBodyState3D *p_state) override;
 
 public:
 	void set_engine_force(real_t p_engine_force);
@@ -207,4 +210,4 @@ public:
 	VehicleBody3D();
 };
 
-#endif // VEHICLE_BODY_H
+#endif // VEHICLE_BODY_3D_H

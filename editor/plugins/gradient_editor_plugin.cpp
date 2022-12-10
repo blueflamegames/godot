@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,48 +31,27 @@
 #include "gradient_editor_plugin.h"
 
 #include "canvas_item_editor_plugin.h"
+#include "editor/editor_node.h"
 #include "editor/editor_scale.h"
+#include "editor/editor_settings.h"
+#include "editor/editor_undo_redo_manager.h"
 #include "node_3d_editor_plugin.h"
 
-Size2 GradientEditor::get_minimum_size() const {
-	return Size2(0, 60) * EDSCALE;
-}
-
-void GradientEditor::_gradient_changed() {
-	if (editing) {
-		return;
+void GradientReverseButton::_notification(int p_what) {
+	switch (p_what) {
+		case NOTIFICATION_DRAW: {
+			Ref<Texture2D> icon = get_theme_icon(SNAME("ReverseGradient"), SNAME("EditorIcons"));
+			if (is_pressed()) {
+				draw_texture_rect(icon, Rect2(margin, margin, icon->get_width(), icon->get_height()), false, get_theme_color(SNAME("icon_pressed_color"), SNAME("Button")));
+			} else {
+				draw_texture_rect(icon, Rect2(margin, margin, icon->get_width(), icon->get_height()));
+			}
+		} break;
 	}
-
-	editing = true;
-	Vector<Gradient::Point> points = gradient->get_points();
-	set_points(points);
-	editing = false;
 }
 
-void GradientEditor::_ramp_changed() {
-	editing = true;
-	UndoRedo *undo_redo = EditorNode::get_singleton()->get_undo_redo();
-	undo_redo->create_action(TTR("Gradient Edited"));
-	undo_redo->add_do_method(gradient.ptr(), "set_offsets", get_offsets());
-	undo_redo->add_do_method(gradient.ptr(), "set_colors", get_colors());
-	undo_redo->add_undo_method(gradient.ptr(), "set_offsets", gradient->get_offsets());
-	undo_redo->add_undo_method(gradient.ptr(), "set_colors", gradient->get_colors());
-	undo_redo->commit_action();
-	editing = false;
-}
-
-void GradientEditor::_bind_methods() {
-}
-
-void GradientEditor::set_gradient(const Ref<Gradient> &p_gradient) {
-	gradient = p_gradient;
-	connect("ramp_changed", callable_mp(this, &GradientEditor::_ramp_changed));
-	gradient->connect("changed", callable_mp(this, &GradientEditor::_gradient_changed));
-	set_points(gradient->get_points());
-}
-
-GradientEditor::GradientEditor() {
-	editing = false;
+Size2 GradientReverseButton::get_minimum_size() const {
+	return (get_theme_icon(SNAME("ReverseGradient"), SNAME("EditorIcons"))->get_size() + Size2(margin * 2, margin * 2));
 }
 
 ///////////////////////
@@ -85,13 +64,30 @@ void EditorInspectorPluginGradient::parse_begin(Object *p_object) {
 	Gradient *gradient = Object::cast_to<Gradient>(p_object);
 	Ref<Gradient> g(gradient);
 
-	GradientEditor *editor = memnew(GradientEditor);
+	editor = memnew(GradientEditor);
 	editor->set_gradient(g);
 	add_custom_control(editor);
+
+	int picker_shape = EDITOR_GET("interface/inspector/default_color_picker_shape");
+	editor->get_picker()->set_picker_shape((ColorPicker::PickerShapeType)picker_shape);
+
+	reverse_btn = memnew(GradientReverseButton);
+
+	gradient_tools_hbox = memnew(HBoxContainer);
+	gradient_tools_hbox->add_child(reverse_btn);
+
+	add_custom_control(gradient_tools_hbox);
+
+	reverse_btn->connect("pressed", callable_mp(this, &EditorInspectorPluginGradient::_reverse_button_pressed));
+	reverse_btn->set_tooltip_text(TTR("Reverse/mirror gradient."));
 }
 
-GradientEditorPlugin::GradientEditorPlugin(EditorNode *p_node) {
+void EditorInspectorPluginGradient::_reverse_button_pressed() {
+	editor->reverse_gradient();
+}
+
+GradientEditorPlugin::GradientEditorPlugin() {
 	Ref<EditorInspectorPluginGradient> plugin;
-	plugin.instance();
+	plugin.instantiate();
 	add_inspector_plugin(plugin);
 }

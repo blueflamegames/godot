@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -54,8 +54,8 @@ private:
 	Ref<Texture2D> disabled;
 	Ref<Texture2D> focused;
 	Ref<BitMap> click_mask;
-	bool expand = false;
-	StretchMode stretch_mode = STRETCH_SCALE;
+	bool ignore_texture_size = false;
+	StretchMode stretch_mode = STRETCH_KEEP;
 
 	Rect2 _texture_region;
 	Rect2 _position_rect;
@@ -71,22 +71,22 @@ protected:
 	static void _bind_methods();
 
 public:
-	void set_normal_texture(const Ref<Texture2D> &p_normal);
-	void set_pressed_texture(const Ref<Texture2D> &p_pressed);
-	void set_hover_texture(const Ref<Texture2D> &p_hover);
-	void set_disabled_texture(const Ref<Texture2D> &p_disabled);
-	void set_focused_texture(const Ref<Texture2D> &p_focused);
+	void set_texture_normal(const Ref<Texture2D> &p_normal);
+	void set_texture_pressed(const Ref<Texture2D> &p_pressed);
+	void set_texture_hover(const Ref<Texture2D> &p_hover);
+	void set_texture_disabled(const Ref<Texture2D> &p_disabled);
+	void set_texture_focused(const Ref<Texture2D> &p_focused);
 	void set_click_mask(const Ref<BitMap> &p_click_mask);
 
-	Ref<Texture2D> get_normal_texture() const;
-	Ref<Texture2D> get_pressed_texture() const;
-	Ref<Texture2D> get_hover_texture() const;
-	Ref<Texture2D> get_disabled_texture() const;
-	Ref<Texture2D> get_focused_texture() const;
+	Ref<Texture2D> get_texture_normal() const;
+	Ref<Texture2D> get_texture_pressed() const;
+	Ref<Texture2D> get_texture_hover() const;
+	Ref<Texture2D> get_texture_disabled() const;
+	Ref<Texture2D> get_texture_focused() const;
 	Ref<BitMap> get_click_mask() const;
 
-	bool get_expand() const;
-	void set_expand(bool p_expand);
+	bool get_ignore_texture_size() const;
+	void set_ignore_texture_size(bool p_ignore);
 
 	void set_stretch_mode(StretchMode p_stretch_mode);
 	StretchMode get_stretch_mode() const;
@@ -101,4 +101,5 @@ public:
 };
 
 VARIANT_ENUM_CAST(TextureButton::StretchMode);
+
 #endif // TEXTURE_BUTTON_H

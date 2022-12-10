@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,25 +31,30 @@
 #ifndef TEXTURE_EDITOR_PLUGIN_H
 #define TEXTURE_EDITOR_PLUGIN_H
 
-#include "editor/editor_node.h"
+#include "editor/editor_inspector.h"
 #include "editor/editor_plugin.h"
+#include "scene/gui/margin_container.h"
 #include "scene/resources/texture.h"
 
-class TextureEditor : public Control {
-	GDCLASS(TextureEditor, Control);
+class TextureRect;
 
-	Ref<Texture2D> texture;
+class TexturePreview : public MarginContainer {
+	GDCLASS(TexturePreview, MarginContainer);
+
+private:
+	TextureRect *texture_display = nullptr;
+
+	TextureRect *checkerboard = nullptr;
+	Label *metadata_label = nullptr;
+
+	void _update_metadata_label_text();
 
 protected:
 	void _notification(int p_what);
-	void _gui_input(Ref<InputEvent> p_event);
-	void _texture_changed();
-	static void _bind_methods();
 
 public:
-	void edit(Ref<Texture2D> p_texture);
-	TextureEditor();
-	~TextureEditor();
+	TextureRect *get_texture_display();
+	TexturePreview(Ref<Texture2D> p_texture, bool p_show_metadata);
 };
 
 class EditorInspectorPluginTexture : public EditorInspectorPlugin {
@@ -66,7 +71,7 @@ class TextureEditorPlugin : public EditorPlugin {
 public:
 	virtual String get_name() const override { return "Texture2D"; }
 
-	TextureEditorPlugin(EditorNode *p_node);
+	TextureEditorPlugin();
 };
 
 #endif // TEXTURE_EDITOR_PLUGIN_H

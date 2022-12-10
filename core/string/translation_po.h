@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -70,6 +70,7 @@ protected:
 	static void _bind_methods();
 
 public:
+	Vector<String> get_translated_message_list() const override;
 	void get_message_list(List<StringName> *r_messages) const override;
 	int get_message_count() const override;
 	void add_message(const StringName &p_src_text, const StringName &p_xlated_text, const StringName &p_context = "") override;

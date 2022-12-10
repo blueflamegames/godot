@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,9 +30,9 @@
 
 #include "resource_importer_shader_file.h"
 
+#include "core/io/file_access.h"
 #include "core/io/marshalls.h"
 #include "core/io/resource_saver.h"
-#include "core/os/file_access.h"
 #include "editor/editor_node.h"
 #include "editor/plugins/shader_file_editor_plugin.h"
 #include "servers/rendering/rendering_device_binds.h"
@@ -65,10 +65,10 @@ String ResourceImporterShaderFile::get_preset_name(int p_idx) const {
 	return String();
 }
 
-void ResourceImporterShaderFile::get_import_options(List<ImportOption> *r_options, int p_preset) const {
+void ResourceImporterShaderFile::get_import_options(const String &p_path, List<ImportOption> *r_options, int p_preset) const {
 }
 
-bool ResourceImporterShaderFile::get_option_visibility(const String &p_option, const Map<StringName, Variant> &p_options) const {
+bool ResourceImporterShaderFile::get_option_visibility(const String &p_path, const String &p_option, const HashMap<StringName, Variant> &p_options) const {
 	return true;
 }
 
@@ -78,28 +78,28 @@ static String _include_function(const String &p_path, void *userpointer) {
 	String *base_path = (String *)userpointer;
 
 	String include = p_path;
-	if (include.is_rel_path()) {
-		include = base_path->plus_file(include);
+	if (include.is_relative_path()) {
+		include = base_path->path_join(include);
 	}
 
-	FileAccessRef file_inc = FileAccess::open(include, FileAccess::READ, &err);
+	Ref<FileAccess> file_inc = FileAccess::open(include, FileAccess::READ, &err);
 	if (err != OK) {
 		return String();
 	}
 	return file_inc->get_as_utf8_string();
 }
 
-Error ResourceImporterShaderFile::import(const String &p_source_file, const String &p_save_path, const Map<StringName, Variant> &p_options, List<String> *r_platform_variants, List<String> *r_gen_files, Variant *r_metadata) {
+Error ResourceImporterShaderFile::import(const String &p_source_file, const String &p_save_path, const HashMap<StringName, Variant> &p_options, List<String> *r_platform_variants, List<String> *r_gen_files, Variant *r_metadata) {
 	/* STEP 1, Read shader code */
 
 	Error err;
-	FileAccessRef file = FileAccess::open(p_source_file, FileAccess::READ, &err);
+	Ref<FileAccess> file = FileAccess::open(p_source_file, FileAccess::READ, &err);
 	ERR_FAIL_COND_V(err != OK, ERR_CANT_OPEN);
 	ERR_FAIL_COND_V(!file.operator->(), ERR_CANT_OPEN);
 
 	String file_txt = file->get_as_utf8_string();
 	Ref<RDShaderFile> shader_file;
-	shader_file.instance();
+	shader_file.instantiate();
 	String base_path = p_source_file.get_base_dir();
 	err = shader_file->parse_versions_from_text(file_txt, "", _include_function, &base_path);
 
@@ -109,7 +109,7 @@ Error ResourceImporterShaderFile::import(const String &p_source_file, const Stri
 		}
 	}
 
-	ResourceSaver::save(p_save_path + ".res", shader_file);
+	ResourceSaver::save(shader_file, p_save_path + ".res");
 
 	return OK;
 }

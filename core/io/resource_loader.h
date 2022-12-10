@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -32,32 +32,48 @@
 #define RESOURCE_LOADER_H
 
 #include "core/io/resource.h"
+#include "core/object/gdvirtual.gen.inc"
+#include "core/object/script_language.h"
 #include "core/os/semaphore.h"
 #include "core/os/thread.h"
 
-class ResourceFormatLoader : public Reference {
-	GDCLASS(ResourceFormatLoader, Reference);
+class ResourceFormatLoader : public RefCounted {
+	GDCLASS(ResourceFormatLoader, RefCounted);
 
 public:
 	enum CacheMode {
-		CACHE_MODE_IGNORE, //resource and subresources do not use path cache, no path is set into resource.
-		CACHE_MODE_REUSE, //resource and subresources use patch cache, reuse existing loaded resources instead of loading from disk when available
-		CACHE_MODE_REPLACE, //resource and and subresource use path cache, but replace existing loaded resources when available with information from disk
+		CACHE_MODE_IGNORE, // Resource and subresources do not use path cache, no path is set into resource.
+		CACHE_MODE_REUSE, // Resource and subresources use patch cache, reuse existing loaded resources instead of loading from disk when available.
+		CACHE_MODE_REPLACE, // Resource and subresource use path cache, but replace existing loaded resources when available with information from disk.
 	};
 
 protected:
 	static void _bind_methods();
 
+	GDVIRTUAL0RC(Vector<String>, _get_recognized_extensions)
+	GDVIRTUAL2RC(bool, _recognize_path, String, StringName)
+	GDVIRTUAL1RC(bool, _handles_type, StringName)
+	GDVIRTUAL1RC(String, _get_resource_type, String)
+	GDVIRTUAL1RC(ResourceUID::ID, _get_resource_uid, String)
+	GDVIRTUAL2RC(Vector<String>, _get_dependencies, String, bool)
+	GDVIRTUAL1RC(Vector<String>, _get_classes_used, String)
+	GDVIRTUAL2RC(int64_t, _rename_dependencies, String, Dictionary)
+	GDVIRTUAL1RC(bool, _exists, String)
+
+	GDVIRTUAL4RC(Variant, _load, String, String, bool, int)
+
 public:
-	virtual RES load(const String &p_path, const String &p_original_path = "", Error *r_error = nullptr, bool p_use_sub_threads = false, float *r_progress = nullptr, CacheMode p_cache_mode = CACHE_MODE_REUSE);
+	virtual Ref<Resource> load(const String &p_path, const String &p_original_path = "", Error *r_error = nullptr, bool p_use_sub_threads = false, float *r_progress = nullptr, CacheMode p_cache_mode = CACHE_MODE_REUSE);
 	virtual bool exists(const String &p_path) const;
 	virtual void get_recognized_extensions(List<String> *p_extensions) const;
 	virtual void get_recognized_extensions_for_type(const String &p_type, List<String> *p_extensions) const;
 	virtual bool recognize_path(const String &p_path, const String &p_for_type = String()) const;
 	virtual bool handles_type(const String &p_type) const;
+	virtual void get_classes_used(const String &p_path, HashSet<StringName> *r_classes);
 	virtual String get_resource_type(const String &p_path) const;
+	virtual ResourceUID::ID get_resource_uid(const String &p_path) const;
 	virtual void get_dependencies(const String &p_path, List<String> *p_dependencies, bool p_add_types = false);
-	virtual Error rename_dependencies(const String &p_path, const Map<String, String> &p_map);
+	virtual Error rename_dependencies(const String &p_path, const HashMap<String, String> &p_map);
 	virtual bool is_import_valid(const String &p_path) const { return true; }
 	virtual bool is_imported(const String &p_path) const { return false; }
 	virtual int get_import_order(const String &p_path) const { return 0; }
@@ -72,7 +88,7 @@ typedef void (*ResourceLoadErrorNotify)(void *p_ud, const String &p_text);
 typedef void (*DependencyErrorNotify)(void *p_ud, const String &p_loading, const String &p_which, const String &p_type);
 
 typedef Error (*ResourceLoaderImport)(const String &p_path);
-typedef void (*ResourceLoadedCallback)(RES p_resource, const String &p_path);
+typedef void (*ResourceLoadedCallback)(Ref<Resource> p_resource, const String &p_path);
 
 class ResourceLoader {
 	enum {
@@ -97,6 +113,7 @@ private:
 	static void *dep_err_notify_ud;
 	static DependencyErrorNotify dep_err_notify;
 	static bool abort_on_missing_resource;
+	static bool create_missing_resources_if_class_unavailable;
 	static HashMap<String, Vector<String>> translation_remaps;
 	static HashMap<String, String> path_remaps;
 
@@ -107,8 +124,8 @@ private:
 
 	friend class ResourceFormatImporter;
 	friend class ResourceInteractiveLoader;
-	//internal load function
-	static RES _load(const String &p_path, const String &p_original_path, const String &p_type_hint, ResourceFormatLoader::CacheMode p_cache_mode, Error *r_error, bool p_use_sub_threads, float *r_progress);
+	// Internal load function.
+	static Ref<Resource> _load(const String &p_path, const String &p_original_path, const String &p_type_hint, ResourceFormatLoader::CacheMode p_cache_mode, Error *r_error, bool p_use_sub_threads, float *r_progress);
 
 	static ResourceLoadedCallback _loaded_callback;
 
@@ -125,13 +142,13 @@ private:
 		ThreadLoadStatus status = THREAD_LOAD_IN_PROGRESS;
 		ResourceFormatLoader::CacheMode cache_mode = ResourceFormatLoader::CACHE_MODE_REUSE;
 		Error error = OK;
-		RES resource;
+		Ref<Resource> resource;
 		bool xl_remapped = false;
 		bool use_sub_threads = false;
 		bool start_next = true;
 		int requests = 0;
 		int poll_requests = 0;
-		Set<String> sub_tasks;
+		HashSet<String> sub_tasks;
 	};
 
 	static void _thread_load_function(void *p_userdata);
@@ -148,17 +165,19 @@ private:
 public:
 	static Error load_threaded_request(const String &p_path, const String &p_type_hint = "", bool p_use_sub_threads = false, ResourceFormatLoader::CacheMode p_cache_mode = ResourceFormatLoader::CACHE_MODE_REUSE, const String &p_source_resource = String());
 	static ThreadLoadStatus load_threaded_get_status(const String &p_path, float *r_progress = nullptr);
-	static RES load_threaded_get(const String &p_path, Error *r_error = nullptr);
+	static Ref<Resource> load_threaded_get(const String &p_path, Error *r_error = nullptr);
 
-	static RES load(const String &p_path, const String &p_type_hint = "", ResourceFormatLoader::CacheMode p_cache_mode = ResourceFormatLoader::CACHE_MODE_REUSE, Error *r_error = nullptr);
+	static Ref<Resource> load(const String &p_path, const String &p_type_hint = "", ResourceFormatLoader::CacheMode p_cache_mode = ResourceFormatLoader::CACHE_MODE_REUSE, Error *r_error = nullptr);
 	static bool exists(const String &p_path, const String &p_type_hint = "");
 
 	static void get_recognized_extensions_for_type(const String &p_type, List<String> *p_extensions);
 	static void add_resource_format_loader(Ref<ResourceFormatLoader> p_format_loader, bool p_at_front = false);
 	static void remove_resource_format_loader(Ref<ResourceFormatLoader> p_format_loader);
+	static void get_classes_used(const String &p_path, HashSet<StringName> *r_classes);
 	static String get_resource_type(const String &p_path);
+	static ResourceUID::ID get_resource_uid(const String &p_path);
 	static void get_dependencies(const String &p_path, List<String> *p_dependencies, bool p_add_types = false);
-	static Error rename_dependencies(const String &p_path, const Map<String, String> &p_map);
+	static Error rename_dependencies(const String &p_path, const HashMap<String, String> &p_map);
 	static bool is_import_valid(const String &p_path);
 	static String get_import_group_file(const String &p_path);
 	static bool is_imported(const String &p_path);
@@ -200,6 +219,8 @@ public:
 	static void load_translation_remaps();
 	static void clear_translation_remaps();
 
+	static void clear_thread_load_tasks();
+
 	static void set_load_callback(ResourceLoadedCallback p_callback);
 	static ResourceLoaderImport import;
 
@@ -207,6 +228,9 @@ public:
 	static void remove_custom_resource_format_loader(String script_path);
 	static void add_custom_loaders();
 	static void remove_custom_loaders();
+
+	static void set_create_missing_resources_if_class_unavailable(bool p_enable);
+	_FORCE_INLINE_ static bool is_creating_missing_resources_if_class_unavailable_enabled() { return create_missing_resources_if_class_unavailable; }
 
 	static void initialize();
 	static void finalize();

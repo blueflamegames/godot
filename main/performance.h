@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -32,10 +32,13 @@
 #define PERFORMANCE_H
 
 #include "core/object/class_db.h"
-#include "core/templates/ordered_hash_map.h"
+#include "core/templates/hash_map.h"
 
 #define PERF_WARN_OFFLINE_FUNCTION
 #define PERF_WARN_PROCESS_SYNC
+
+template <typename T>
+class TypedArray;
 
 class Performance : public Object {
 	GDCLASS(Performance, Object);
@@ -43,10 +46,10 @@ class Performance : public Object {
 	static Performance *singleton;
 	static void _bind_methods();
 
-	float _get_node_count() const;
+	int _get_node_count() const;
 
-	float _process_time;
-	float _physics_process_time;
+	double _process_time;
+	double _physics_process_time;
 
 	class MonitorCall {
 		Callable _callable;
@@ -58,7 +61,7 @@ class Performance : public Object {
 		Variant call(bool &r_error, String &r_error_message);
 	};
 
-	OrderedHashMap<StringName, MonitorCall> _monitor_map;
+	HashMap<StringName, MonitorCall> _monitor_map;
 	uint64_t _monitor_modification_time;
 
 public:
@@ -73,23 +76,18 @@ public:
 		OBJECT_RESOURCE_COUNT,
 		OBJECT_NODE_COUNT,
 		OBJECT_ORPHAN_NODE_COUNT,
-		RENDER_OBJECTS_IN_FRAME,
-		RENDER_VERTICES_IN_FRAME,
-		RENDER_MATERIAL_CHANGES_IN_FRAME,
-		RENDER_SHADER_CHANGES_IN_FRAME,
-		RENDER_SURFACE_CHANGES_IN_FRAME,
-		RENDER_DRAW_CALLS_IN_FRAME,
+		RENDER_TOTAL_OBJECTS_IN_FRAME,
+		RENDER_TOTAL_PRIMITIVES_IN_FRAME,
+		RENDER_TOTAL_DRAW_CALLS_IN_FRAME,
 		RENDER_VIDEO_MEM_USED,
 		RENDER_TEXTURE_MEM_USED,
-		RENDER_VERTEX_MEM_USED,
-		RENDER_USAGE_VIDEO_MEM_TOTAL,
+		RENDER_BUFFER_MEM_USED,
 		PHYSICS_2D_ACTIVE_OBJECTS,
 		PHYSICS_2D_COLLISION_PAIRS,
 		PHYSICS_2D_ISLAND_COUNT,
 		PHYSICS_3D_ACTIVE_OBJECTS,
 		PHYSICS_3D_COLLISION_PAIRS,
 		PHYSICS_3D_ISLAND_COUNT,
-		//physics
 		AUDIO_OUTPUT_LATENCY,
 		MONITOR_MAX
 	};
@@ -100,19 +98,19 @@ public:
 		MONITOR_TYPE_TIME
 	};
 
-	float get_monitor(Monitor p_monitor) const;
+	double get_monitor(Monitor p_monitor) const;
 	String get_monitor_name(Monitor p_monitor) const;
 
 	MonitorType get_monitor_type(Monitor p_monitor) const;
 
-	void set_process_time(float p_pt);
-	void set_physics_process_time(float p_pt);
+	void set_process_time(double p_pt);
+	void set_physics_process_time(double p_pt);
 
 	void add_custom_monitor(const StringName &p_id, const Callable &p_callable, const Vector<Variant> &p_args);
 	void remove_custom_monitor(const StringName &p_id);
 	bool has_custom_monitor(const StringName &p_id);
 	Variant get_custom_monitor(const StringName &p_id);
-	Array get_custom_monitor_names();
+	TypedArray<StringName> get_custom_monitor_names();
 
 	uint64_t get_monitor_modification_time();
 

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -70,10 +70,10 @@ void AudioEffectCapture::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_buffer_length_frames"), &AudioEffectCapture::get_buffer_length_frames);
 	ClassDB::bind_method(D_METHOD("get_pushed_frames"), &AudioEffectCapture::get_pushed_frames);
 
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "buffer_length", PROPERTY_HINT_RANGE, "0.01,10,0.01"), "set_buffer_length", "get_buffer_length");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "buffer_length", PROPERTY_HINT_RANGE, "0.01,10,0.01,suffix:s"), "set_buffer_length", "get_buffer_length");
 }
 
-Ref<AudioEffectInstance> AudioEffectCapture::instance() {
+Ref<AudioEffectInstance> AudioEffectCapture::instantiate() {
 	if (!buffer_initialized) {
 		float target_buffer_size = AudioServer::get_singleton()->get_mix_rate() * buffer_length_seconds;
 		ERR_FAIL_COND_V(target_buffer_size <= 0 || target_buffer_size >= (1 << 27), Ref<AudioEffectInstance>());
@@ -84,7 +84,7 @@ Ref<AudioEffectInstance> AudioEffectCapture::instance() {
 	clear_buffer();
 
 	Ref<AudioEffectCaptureInstance> ins;
-	ins.instance();
+	ins.instantiate();
 	ins->base = Ref<AudioEffectCapture>(this);
 
 	return ins;

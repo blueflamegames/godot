@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -28,8 +28,8 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 
-#ifndef LIGHTOCCLUDER2D_H
-#define LIGHTOCCLUDER2D_H
+#ifndef LIGHT_OCCLUDER_2D_H
+#define LIGHT_OCCLUDER_2D_H
 
 #include "scene/2d/node_2d.h"
 
@@ -81,10 +81,9 @@ class LightOccluder2D : public Node2D {
 	GDCLASS(LightOccluder2D, Node2D);
 
 	RID occluder;
-	bool enabled;
-	int mask;
+	int mask = 1;
 	Ref<OccluderPolygon2D> occluder_polygon;
-	bool sdf_collision;
+	bool sdf_collision = false;
 	void _poly_changed();
 
 protected:
@@ -106,10 +105,10 @@ public:
 	void set_as_sdf_collision(bool p_enable);
 	bool is_set_as_sdf_collision() const;
 
-	String get_configuration_warning() const override;
+	PackedStringArray get_configuration_warnings() const override;
 
 	LightOccluder2D();
 	~LightOccluder2D();
 };
 
-#endif // LIGHTOCCLUDER2D_H
+#endif // LIGHT_OCCLUDER_2D_H

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -32,10 +32,10 @@
 #define RANDOM_NUMBER_GENERATOR_H
 
 #include "core/math/random_pcg.h"
-#include "core/object/reference.h"
+#include "core/object/ref_counted.h"
 
-class RandomNumberGenerator : public Reference {
-	GDCLASS(RandomNumberGenerator, Reference);
+class RandomNumberGenerator : public RefCounted {
+	GDCLASS(RandomNumberGenerator, RefCounted);
 
 protected:
 	RandomPCG randbase;
@@ -57,7 +57,7 @@ public:
 	_FORCE_INLINE_ real_t randfn(real_t p_mean = 0.0, real_t p_deviation = 1.0) { return randbase.randfn(p_mean, p_deviation); }
 	_FORCE_INLINE_ int randi_range(int p_from, int p_to) { return randbase.random(p_from, p_to); }
 
-	RandomNumberGenerator() {}
+	RandomNumberGenerator() { randbase.randomize(); }
 };
 
 #endif // RANDOM_NUMBER_GENERATOR_H

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -34,7 +34,7 @@
 #include "core/math/vector2.h"
 #include "core/typedefs.h"
 
-static inline float undenormalise(volatile float f) {
+static inline float undenormalize(volatile float f) {
 	union {
 		uint32_t i;
 		float f;
@@ -48,11 +48,11 @@ static inline float undenormalise(volatile float f) {
 }
 
 static const float AUDIO_PEAK_OFFSET = 0.0000000001f;
-static const float AUDIO_MIN_PEAK_DB = -200.0f; // linear2db(AUDIO_PEAK_OFFSET)
+static const float AUDIO_MIN_PEAK_DB = -200.0f; // linear_to_db(AUDIO_PEAK_OFFSET)
 
 struct AudioFrame {
 	//left and right samples
-	float l, r;
+	float l = 0.f, r = 0.f;
 
 	_ALWAYS_INLINE_ const float &operator[](int idx) const { return idx == 0 ? l : r; }
 	_ALWAYS_INLINE_ float &operator[](int idx) { return idx == 0 ? l : r; }
@@ -101,9 +101,9 @@ struct AudioFrame {
 		r /= p_sample;
 	}
 
-	_ALWAYS_INLINE_ void undenormalise() {
-		l = ::undenormalise(l);
-		r = ::undenormalise(r);
+	_ALWAYS_INLINE_ void undenormalize() {
+		l = ::undenormalize(l);
+		r = ::undenormalize(r);
 	}
 
 	_FORCE_INLINE_ AudioFrame lerp(const AudioFrame &p_b, float p_t) const {
@@ -124,10 +124,9 @@ struct AudioFrame {
 		r = p_frame.r;
 	}
 
-	_ALWAYS_INLINE_ AudioFrame &operator=(const AudioFrame &p_frame) {
+	_ALWAYS_INLINE_ void operator=(const AudioFrame &p_frame) {
 		l = p_frame.l;
 		r = p_frame.r;
-		return *this;
 	}
 
 	_ALWAYS_INLINE_ operator Vector2() const {
@@ -140,5 +139,17 @@ struct AudioFrame {
 	}
 	_ALWAYS_INLINE_ AudioFrame() {}
 };
+
+_ALWAYS_INLINE_ AudioFrame operator*(float p_scalar, const AudioFrame &p_frame) {
+	return AudioFrame(p_frame.l * p_scalar, p_frame.r * p_scalar);
+}
+
+_ALWAYS_INLINE_ AudioFrame operator*(int32_t p_scalar, const AudioFrame &p_frame) {
+	return AudioFrame(p_frame.l * p_scalar, p_frame.r * p_scalar);
+}
+
+_ALWAYS_INLINE_ AudioFrame operator*(int64_t p_scalar, const AudioFrame &p_frame) {
+	return AudioFrame(p_frame.l * p_scalar, p_frame.r * p_scalar);
+}
 
 #endif // AUDIO_FRAME_H

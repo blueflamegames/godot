@@ -1,7 +1,7 @@
 /**
- * meshoptimizer - version 0.15
+ * meshoptimizer - version 0.17
  *
- * Copyright (C) 2016-2020, by Arseny Kapoulkine (arseny.kapoulkine@gmail.com)
+ * Copyright (C) 2016-2021, by Arseny Kapoulkine (arseny.kapoulkine@gmail.com)
  * Report bugs and download new versions at https://github.com/zeux/meshoptimizer
  *
  * This library is distributed under the MIT License. See notice at the end of this file.
@@ -12,11 +12,20 @@
 #include <stddef.h>
 
 /* Version macro; major * 1000 + minor * 10 + patch */
-#define MESHOPTIMIZER_VERSION 150 /* 0.15 */
+#define MESHOPTIMIZER_VERSION 170 /* 0.17 */
 
 /* If no API is defined, assume default */
 #ifndef MESHOPTIMIZER_API
 #define MESHOPTIMIZER_API
+#endif
+
+/* Set the calling-convention for alloc/dealloc function pointers */
+#ifndef MESHOPTIMIZER_ALLOC_CALLCONV
+#ifdef _MSC_VER
+#define MESHOPTIMIZER_ALLOC_CALLCONV __cdecl
+#else
+#define MESHOPTIMIZER_ALLOC_CALLCONV
+#endif
 #endif
 
 /* Experimental APIs have unstable interface and might have implementation that's not fully tested or optimized */
@@ -98,6 +107,35 @@ MESHOPTIMIZER_API void meshopt_generateShadowIndexBuffer(unsigned int* destinati
 MESHOPTIMIZER_API void meshopt_generateShadowIndexBufferMulti(unsigned int* destination, const unsigned int* indices, size_t index_count, size_t vertex_count, const struct meshopt_Stream* streams, size_t stream_count);
 
 /**
+ * Generate index buffer that can be used as a geometry shader input with triangle adjacency topology
+ * Each triangle is converted into a 6-vertex patch with the following layout:
+ * - 0, 2, 4: original triangle vertices
+ * - 1, 3, 5: vertices adjacent to edges 02, 24 and 40
+ * The resulting patch can be rendered with geometry shaders using e.g. VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST_WITH_ADJACENCY.
+ * This can be used to implement algorithms like silhouette detection/expansion and other forms of GS-driven rendering.
+ *
+ * destination must contain enough space for the resulting index buffer (index_count*2 elements)
+ * vertex_positions should have float3 position in the first 12 bytes of each vertex - similar to glVertexPointer
+ */
+MESHOPTIMIZER_API void meshopt_generateAdjacencyIndexBuffer(unsigned int* destination, const unsigned int* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride);
+
+/**
+ * Generate index buffer that can be used for PN-AEN tessellation with crack-free displacement
+ * Each triangle is converted into a 12-vertex patch with the following layout:
+ * - 0, 1, 2: original triangle vertices
+ * - 3, 4: opposing edge for edge 0, 1
+ * - 5, 6: opposing edge for edge 1, 2
+ * - 7, 8: opposing edge for edge 2, 0
+ * - 9, 10, 11: dominant vertices for corners 0, 1, 2
+ * The resulting patch can be rendered with hardware tessellation using PN-AEN and displacement mapping.
+ * See "Tessellation on Any Budget" (John McDonald, GDC 2011) for implementation details.
+ *
+ * destination must contain enough space for the resulting index buffer (index_count*4 elements)
+ * vertex_positions should have float3 position in the first 12 bytes of each vertex - similar to glVertexPointer
+ */
+MESHOPTIMIZER_API void meshopt_generateTessellationIndexBuffer(unsigned int* destination, const unsigned int* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride);
+
+/**
  * Vertex transform cache optimizer
  * Reorders indices to reduce the number of GPU vertex shader invocations
  * If index buffer contains multiple ranges for multiple draw calls, this functions needs to be called on each range individually.
@@ -172,10 +210,10 @@ MESHOPTIMIZER_API size_t meshopt_encodeIndexBuffer(unsigned char* buffer, size_t
 MESHOPTIMIZER_API size_t meshopt_encodeIndexBufferBound(size_t index_count, size_t vertex_count);
 
 /**
- * Experimental: Set index encoder format version
+ * Set index encoder format version
  * version must specify the data format version to encode; valid values are 0 (decodable by all library versions) and 1 (decodable by 0.14+)
  */
-MESHOPTIMIZER_EXPERIMENTAL void meshopt_encodeIndexVersion(int version);
+MESHOPTIMIZER_API void meshopt_encodeIndexVersion(int version);
 
 /**
  * Index buffer decoder
@@ -188,15 +226,15 @@ MESHOPTIMIZER_EXPERIMENTAL void meshopt_encodeIndexVersion(int version);
 MESHOPTIMIZER_API int meshopt_decodeIndexBuffer(void* destination, size_t index_count, size_t index_size, const unsigned char* buffer, size_t buffer_size);
 
 /**
- * Experimental: Index sequence encoder
+ * Index sequence encoder
  * Encodes index sequence into an array of bytes that is generally smaller and compresses better compared to original.
  * Input index sequence can represent arbitrary topology; for triangle lists meshopt_encodeIndexBuffer is likely to be better.
  * Returns encoded data size on success, 0 on error; the only error condition is if buffer doesn't have enough space
  *
  * buffer must contain enough space for the encoded index sequence (use meshopt_encodeIndexSequenceBound to compute worst case size)
  */
-MESHOPTIMIZER_EXPERIMENTAL size_t meshopt_encodeIndexSequence(unsigned char* buffer, size_t buffer_size, const unsigned int* indices, size_t index_count);
-MESHOPTIMIZER_EXPERIMENTAL size_t meshopt_encodeIndexSequenceBound(size_t index_count, size_t vertex_count);
+MESHOPTIMIZER_API size_t meshopt_encodeIndexSequence(unsigned char* buffer, size_t buffer_size, const unsigned int* indices, size_t index_count);
+MESHOPTIMIZER_API size_t meshopt_encodeIndexSequenceBound(size_t index_count, size_t vertex_count);
 
 /**
  * Index sequence decoder
@@ -206,7 +244,7 @@ MESHOPTIMIZER_EXPERIMENTAL size_t meshopt_encodeIndexSequenceBound(size_t index_
  *
  * destination must contain enough space for the resulting index sequence (index_count elements)
  */
-MESHOPTIMIZER_EXPERIMENTAL int meshopt_decodeIndexSequence(void* destination, size_t index_count, size_t index_size, const unsigned char* buffer, size_t buffer_size);
+MESHOPTIMIZER_API int meshopt_decodeIndexSequence(void* destination, size_t index_count, size_t index_size, const unsigned char* buffer, size_t buffer_size);
 
 /**
  * Vertex buffer encoder
@@ -221,10 +259,10 @@ MESHOPTIMIZER_API size_t meshopt_encodeVertexBuffer(unsigned char* buffer, size_
 MESHOPTIMIZER_API size_t meshopt_encodeVertexBufferBound(size_t vertex_count, size_t vertex_size);
 
 /**
- * Experimental: Set vertex encoder format version
+ * Set vertex encoder format version
  * version must specify the data format version to encode; valid values are 0 (decodable by all library versions)
  */
-MESHOPTIMIZER_EXPERIMENTAL void meshopt_encodeVertexVersion(int version);
+MESHOPTIMIZER_API void meshopt_encodeVertexVersion(int version);
 
 /**
  * Vertex buffer decoder
@@ -249,9 +287,30 @@ MESHOPTIMIZER_API int meshopt_decodeVertexBuffer(void* destination, size_t verte
  * meshopt_decodeFilterExp decodes exponential encoding of floating-point data with 8-bit exponent and 24-bit integer mantissa as 2^E*M.
  * Each 32-bit component is decoded in isolation; stride must be divisible by 4.
  */
-MESHOPTIMIZER_EXPERIMENTAL void meshopt_decodeFilterOct(void* buffer, size_t vertex_count, size_t vertex_size);
-MESHOPTIMIZER_EXPERIMENTAL void meshopt_decodeFilterQuat(void* buffer, size_t vertex_count, size_t vertex_size);
-MESHOPTIMIZER_EXPERIMENTAL void meshopt_decodeFilterExp(void* buffer, size_t vertex_count, size_t vertex_size);
+MESHOPTIMIZER_EXPERIMENTAL void meshopt_decodeFilterOct(void* buffer, size_t count, size_t stride);
+MESHOPTIMIZER_EXPERIMENTAL void meshopt_decodeFilterQuat(void* buffer, size_t count, size_t stride);
+MESHOPTIMIZER_EXPERIMENTAL void meshopt_decodeFilterExp(void* buffer, size_t count, size_t stride);
+
+/**
+ * Vertex buffer filter encoders
+ * These functions can be used to encode data in a format that meshopt_decodeFilter can decode
+ *
+ * meshopt_encodeFilterOct encodes unit vectors with K-bit (K <= 16) signed X/Y as an output.
+ * Each component is stored as an 8-bit or 16-bit normalized integer; stride must be equal to 4 or 8. W is preserved as is.
+ * Input data must contain 4 floats for every vector (count*4 total).
+ *
+ * meshopt_encodeFilterQuat encodes unit quaternions with K-bit (4 <= K <= 16) component encoding.
+ * Each component is stored as an 16-bit integer; stride must be equal to 8.
+ * Input data must contain 4 floats for every quaternion (count*4 total).
+ *
+ * meshopt_encodeFilterExp encodes arbitrary (finite) floating-point data with 8-bit exponent and K-bit integer mantissa (1 <= K <= 24).
+ * Mantissa is shared between all components of a given vector as defined by stride; stride must be divisible by 4.
+ * Input data must contain stride/4 floats for every vector (count*stride/4 total).
+ * When individual (scalar) encoding is desired, simply pass stride=4 and adjust count accordingly.
+ */
+MESHOPTIMIZER_EXPERIMENTAL void meshopt_encodeFilterOct(void* destination, size_t count, size_t stride, int bits, const float* data);
+MESHOPTIMIZER_EXPERIMENTAL void meshopt_encodeFilterQuat(void* destination, size_t count, size_t stride, int bits, const float* data);
+MESHOPTIMIZER_EXPERIMENTAL void meshopt_encodeFilterExp(void* destination, size_t count, size_t stride, int bits, const float* data);
 
 /**
  * Experimental: Mesh simplifier
@@ -270,8 +329,13 @@ MESHOPTIMIZER_EXPERIMENTAL void meshopt_decodeFilterExp(void* buffer, size_t ver
 MESHOPTIMIZER_EXPERIMENTAL size_t meshopt_simplify(unsigned int* destination, const unsigned int* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, size_t target_index_count, float target_error, float* result_error);
 
 /**
+ * Experimental: Mesh simplifier with attribute metric; attributes follow xyz position data atm (vertex data must contain 3 + attribute_count floats per vertex)
+ */
+MESHOPTIMIZER_EXPERIMENTAL size_t meshopt_simplifyWithAttributes(unsigned int* destination, const unsigned int* indices, size_t index_count, const float* vertex_data, size_t vertex_count, size_t vertex_stride, size_t target_index_count, float target_error, float* result_error, const float* attributes, const float* attribute_weights, size_t attribute_count);
+
+/**
  * Experimental: Mesh simplifier (sloppy)
- * Reduces the number of triangles in the mesh, sacrificing mesh apperance for simplification performance
+ * Reduces the number of triangles in the mesh, sacrificing mesh appearance for simplification performance
  * The algorithm doesn't preserve mesh topology but can stop short of the target goal based on target error.
  * Returns the number of indices after simplification, with destination containing new index data
  * The resulting index buffer references vertices from the original vertex buffer.
@@ -298,7 +362,7 @@ MESHOPTIMIZER_EXPERIMENTAL size_t meshopt_simplifyPoints(unsigned int* destinati
 
 /**
  * Experimental: Returns the error scaling factor used by the simplifier to convert between absolute and relative extents
- * 
+ *
  * Absolute error must be *divided* by the scaling factor before passing it to meshopt_simplify as target_error
  * Relative error returned by meshopt_simplify via result_error must be *multiplied* by the scaling factor to get absolute error.
  */
@@ -373,23 +437,32 @@ MESHOPTIMIZER_API struct meshopt_VertexFetchStatistics meshopt_analyzeVertexFetc
 
 struct meshopt_Meshlet
 {
-	unsigned int vertices[64];
-	unsigned char indices[126][3];
-	unsigned char triangle_count;
-	unsigned char vertex_count;
+	/* offsets within meshlet_vertices and meshlet_triangles arrays with meshlet data */
+	unsigned int vertex_offset;
+	unsigned int triangle_offset;
+
+	/* number of vertices and triangles used in the meshlet; data is stored in consecutive range defined by offset and count */
+	unsigned int vertex_count;
+	unsigned int triangle_count;
 };
 
 /**
- * Experimental: Meshlet builder
+ * Meshlet builder
  * Splits the mesh into a set of meshlets where each meshlet has a micro index buffer indexing into meshlet vertices that refer to the original vertex buffer
  * The resulting data can be used to render meshes using NVidia programmable mesh shading pipeline, or in other cluster-based renderers.
- * For maximum efficiency the index buffer being converted has to be optimized for vertex cache first.
+ * When using buildMeshlets, vertex positions need to be provided to minimize the size of the resulting clusters.
+ * When using buildMeshletsScan, for maximum efficiency the index buffer being converted has to be optimized for vertex cache first.
  *
- * destination must contain enough space for all meshlets, worst case size can be computed with meshopt_buildMeshletsBound
- * max_vertices and max_triangles can't exceed limits statically declared in meshopt_Meshlet (max_vertices <= 64, max_triangles <= 126)
+ * meshlets must contain enough space for all meshlets, worst case size can be computed with meshopt_buildMeshletsBound
+ * meshlet_vertices must contain enough space for all meshlets, worst case size is equal to max_meshlets * max_vertices
+ * meshlet_triangles must contain enough space for all meshlets, worst case size is equal to max_meshlets * max_triangles * 3
+ * vertex_positions should have float3 position in the first 12 bytes of each vertex - similar to glVertexPointer
+ * max_vertices and max_triangles must not exceed implementation limits (max_vertices <= 255 - not 256!, max_triangles <= 512)
+ * cone_weight should be set to 0 when cone culling is not used, and a value between 0 and 1 otherwise to balance between cluster size and cone culling efficiency
  */
-MESHOPTIMIZER_EXPERIMENTAL size_t meshopt_buildMeshlets(struct meshopt_Meshlet* destination, const unsigned int* indices, size_t index_count, size_t vertex_count, size_t max_vertices, size_t max_triangles);
-MESHOPTIMIZER_EXPERIMENTAL size_t meshopt_buildMeshletsBound(size_t index_count, size_t max_vertices, size_t max_triangles);
+MESHOPTIMIZER_API size_t meshopt_buildMeshlets(struct meshopt_Meshlet* meshlets, unsigned int* meshlet_vertices, unsigned char* meshlet_triangles, const unsigned int* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, size_t max_vertices, size_t max_triangles, float cone_weight);
+MESHOPTIMIZER_API size_t meshopt_buildMeshletsScan(struct meshopt_Meshlet* meshlets, unsigned int* meshlet_vertices, unsigned char* meshlet_triangles, const unsigned int* indices, size_t index_count, size_t vertex_count, size_t max_vertices, size_t max_triangles);
+MESHOPTIMIZER_API size_t meshopt_buildMeshletsBound(size_t index_count, size_t max_vertices, size_t max_triangles);
 
 struct meshopt_Bounds
 {
@@ -408,7 +481,7 @@ struct meshopt_Bounds
 };
 
 /**
- * Experimental: Cluster bounds generator
+ * Cluster bounds generator
  * Creates bounding volumes that can be used for frustum, backface and occlusion culling.
  *
  * For backface culling with orthographic projection, use the following formula to reject backfacing clusters:
@@ -426,10 +499,10 @@ struct meshopt_Bounds
  * to do frustum/occlusion culling, the formula that doesn't use the apex may be preferable.
  *
  * vertex_positions should have float3 position in the first 12 bytes of each vertex - similar to glVertexPointer
- * index_count should be less than or equal to 256*3 (the function assumes clusters of limited size)
+ * index_count/3 should be less than or equal to 512 (the function assumes clusters of limited size)
  */
-MESHOPTIMIZER_EXPERIMENTAL struct meshopt_Bounds meshopt_computeClusterBounds(const unsigned int* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride);
-MESHOPTIMIZER_EXPERIMENTAL struct meshopt_Bounds meshopt_computeMeshletBounds(const struct meshopt_Meshlet* meshlet, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride);
+MESHOPTIMIZER_API struct meshopt_Bounds meshopt_computeClusterBounds(const unsigned int* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride);
+MESHOPTIMIZER_API struct meshopt_Bounds meshopt_computeMeshletBounds(const unsigned int* meshlet_vertices, const unsigned char* meshlet_triangles, size_t triangle_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride);
 
 /**
  * Experimental: Spatial sorter
@@ -455,7 +528,7 @@ MESHOPTIMIZER_EXPERIMENTAL void meshopt_spatialSortTriangles(unsigned int* desti
  * Note that all algorithms only allocate memory for temporary use.
  * allocate/deallocate are always called in a stack-like order - last pointer to be allocated is deallocated first.
  */
-MESHOPTIMIZER_API void meshopt_setAllocator(void* (*allocate)(size_t), void (*deallocate)(void*));
+MESHOPTIMIZER_API void meshopt_setAllocator(void* (MESHOPTIMIZER_ALLOC_CALLCONV *allocate)(size_t), void (MESHOPTIMIZER_ALLOC_CALLCONV *deallocate)(void*));
 
 #ifdef __cplusplus
 } /* extern "C" */
@@ -513,6 +586,10 @@ inline void meshopt_generateShadowIndexBuffer(T* destination, const T* indices, 
 template <typename T>
 inline void meshopt_generateShadowIndexBufferMulti(T* destination, const T* indices, size_t index_count, size_t vertex_count, const meshopt_Stream* streams, size_t stream_count);
 template <typename T>
+inline void meshopt_generateAdjacencyIndexBuffer(T* destination, const T* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride);
+template <typename T>
+inline void meshopt_generateTessellationIndexBuffer(T* destination, const T* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride);
+template <typename T>
 inline void meshopt_optimizeVertexCache(T* destination, const T* indices, size_t index_count, size_t vertex_count);
 template <typename T>
 inline void meshopt_optimizeVertexCacheStrip(T* destination, const T* indices, size_t index_count, size_t vertex_count);
@@ -547,7 +624,9 @@ inline meshopt_OverdrawStatistics meshopt_analyzeOverdraw(const T* indices, size
 template <typename T>
 inline meshopt_VertexFetchStatistics meshopt_analyzeVertexFetch(const T* indices, size_t index_count, size_t vertex_count, size_t vertex_size);
 template <typename T>
-inline size_t meshopt_buildMeshlets(meshopt_Meshlet* destination, const T* indices, size_t index_count, size_t vertex_count, size_t max_vertices, size_t max_triangles);
+inline size_t meshopt_buildMeshlets(meshopt_Meshlet* meshlets, unsigned int* meshlet_vertices, unsigned char* meshlet_triangles, const T* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, size_t max_vertices, size_t max_triangles, float cone_weight);
+template <typename T>
+inline size_t meshopt_buildMeshletsScan(meshopt_Meshlet* meshlets, unsigned int* meshlet_vertices, unsigned char* meshlet_triangles, const T* indices, size_t index_count, size_t vertex_count, size_t max_vertices, size_t max_triangles);
 template <typename T>
 inline meshopt_Bounds meshopt_computeClusterBounds(const T* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride);
 template <typename T>
@@ -631,8 +710,8 @@ public:
 	template <typename T>
 	struct StorageT
 	{
-		static void* (*allocate)(size_t);
-		static void (*deallocate)(void*);
+		static void* (MESHOPTIMIZER_ALLOC_CALLCONV *allocate)(size_t);
+		static void (MESHOPTIMIZER_ALLOC_CALLCONV *deallocate)(void*);
 	};
 
 	typedef StorageT<void> Storage;
@@ -663,8 +742,8 @@ private:
 };
 
 // This makes sure that allocate/deallocate are lazily generated in translation units that need them and are deduplicated by the linker
-template <typename T> void* (*meshopt_Allocator::StorageT<T>::allocate)(size_t) = operator new;
-template <typename T> void (*meshopt_Allocator::StorageT<T>::deallocate)(void*) = operator delete;
+template <typename T> void* (MESHOPTIMIZER_ALLOC_CALLCONV *meshopt_Allocator::StorageT<T>::allocate)(size_t) = operator new;
+template <typename T> void (MESHOPTIMIZER_ALLOC_CALLCONV *meshopt_Allocator::StorageT<T>::deallocate)(void*) = operator delete;
 #endif
 
 /* Inline implementation for C++ templated wrappers */
@@ -759,6 +838,24 @@ inline void meshopt_generateShadowIndexBufferMulti(T* destination, const T* indi
 	meshopt_IndexAdapter<T> out(destination, 0, index_count);
 
 	meshopt_generateShadowIndexBufferMulti(out.data, in.data, index_count, vertex_count, streams, stream_count);
+}
+
+template <typename T>
+inline void meshopt_generateAdjacencyIndexBuffer(T* destination, const T* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride)
+{
+	meshopt_IndexAdapter<T> in(0, indices, index_count);
+	meshopt_IndexAdapter<T> out(destination, 0, index_count * 2);
+
+	meshopt_generateAdjacencyIndexBuffer(out.data, in.data, index_count, vertex_positions, vertex_count, vertex_positions_stride);
+}
+
+template <typename T>
+inline void meshopt_generateTessellationIndexBuffer(T* destination, const T* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride)
+{
+	meshopt_IndexAdapter<T> in(0, indices, index_count);
+	meshopt_IndexAdapter<T> out(destination, 0, index_count * 4);
+
+	meshopt_generateTessellationIndexBuffer(out.data, in.data, index_count, vertex_positions, vertex_count, vertex_positions_stride);
 }
 
 template <typename T>
@@ -908,11 +1005,19 @@ inline meshopt_VertexFetchStatistics meshopt_analyzeVertexFetch(const T* indices
 }
 
 template <typename T>
-inline size_t meshopt_buildMeshlets(meshopt_Meshlet* destination, const T* indices, size_t index_count, size_t vertex_count, size_t max_vertices, size_t max_triangles)
+inline size_t meshopt_buildMeshlets(meshopt_Meshlet* meshlets, unsigned int* meshlet_vertices, unsigned char* meshlet_triangles, const T* indices, size_t index_count, const float* vertex_positions, size_t vertex_count, size_t vertex_positions_stride, size_t max_vertices, size_t max_triangles, float cone_weight)
 {
 	meshopt_IndexAdapter<T> in(0, indices, index_count);
 
-	return meshopt_buildMeshlets(destination, in.data, index_count, vertex_count, max_vertices, max_triangles);
+	return meshopt_buildMeshlets(meshlets, meshlet_vertices, meshlet_triangles, in.data, index_count, vertex_positions, vertex_count, vertex_positions_stride, max_vertices, max_triangles, cone_weight);
+}
+
+template <typename T>
+inline size_t meshopt_buildMeshletsScan(meshopt_Meshlet* meshlets, unsigned int* meshlet_vertices, unsigned char* meshlet_triangles, const T* indices, size_t index_count, size_t vertex_count, size_t max_vertices, size_t max_triangles)
+{
+	meshopt_IndexAdapter<T> in(0, indices, index_count);
+
+	return meshopt_buildMeshletsScan(meshlets, meshlet_vertices, meshlet_triangles, in.data, index_count, vertex_count, max_vertices, max_triangles);
 }
 
 template <typename T>
@@ -934,7 +1039,7 @@ inline void meshopt_spatialSortTriangles(T* destination, const T* indices, size_
 #endif
 
 /**
- * Copyright (c) 2016-2020 Arseny Kapoulkine
+ * Copyright (c) 2016-2021 Arseny Kapoulkine
  *
  * Permission is hereby granted, free of charge, to any person
  * obtaining a copy of this software and associated documentation

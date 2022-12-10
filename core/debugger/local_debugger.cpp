@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -32,7 +32,6 @@
 
 #include "core/debugger/script_debugger.h"
 #include "core/os/os.h"
-#include "scene/main/scene_tree.h"
 
 struct LocalDebugger::ScriptsProfiler {
 	struct ProfileInfoSort {
@@ -41,7 +40,7 @@ struct LocalDebugger::ScriptsProfiler {
 		}
 	};
 
-	float frame_time = 0;
+	double frame_time = 0;
 	uint64_t idle_accum = 0;
 	Vector<ScriptLanguage::ProfilingInfo> pinfo;
 
@@ -61,7 +60,7 @@ struct LocalDebugger::ScriptsProfiler {
 		}
 	}
 
-	void tick(float p_frame_time, float p_idle_time, float p_physics_time, float p_physics_frame_time) {
+	void tick(double p_frame_time, double p_process_time, double p_physics_time, double p_physics_frame_time) {
 		frame_time = p_frame_time;
 		_print_frame_data(false);
 	}
@@ -92,8 +91,8 @@ struct LocalDebugger::ScriptsProfiler {
 		for (int i = 0; i < ofs; i++) {
 			script_time_us += pinfo[i].self_time;
 		}
-		float script_time = USEC_TO_SEC(script_time_us);
-		float total_time = p_accumulated ? script_time : frame_time;
+		double script_time = USEC_TO_SEC(script_time_us);
+		double total_time = p_accumulated ? script_time : frame_time;
 
 		if (!p_accumulated) {
 			print_line("FRAME: total: " + rtos(total_time) + " script: " + rtos(script_time) + "/" + itos(script_time * 100 / total_time) + " %");
@@ -103,8 +102,8 @@ struct LocalDebugger::ScriptsProfiler {
 
 		for (int i = 0; i < ofs; i++) {
 			print_line(itos(i) + ":" + pinfo[i].signature);
-			float tt = USEC_TO_SEC(pinfo[i].total_time);
-			float st = USEC_TO_SEC(pinfo[i].self_time);
+			double tt = USEC_TO_SEC(pinfo[i].total_time);
+			double st = USEC_TO_SEC(pinfo[i].self_time);
 			print_line("\ttotal: " + rtos(tt) + "/" + itos(tt * 100 / total_time) + " % \tself: " + rtos(st) + "/" + itos(st * 100 / total_time) + " % tcalls: " + itos(pinfo[i].call_count));
 		}
 	}
@@ -139,7 +138,7 @@ void LocalDebugger::debug(bool p_can_continue, bool p_is_error_breakpoint) {
 		// Cache options
 		String variable_prefix = options["variable_prefix"];
 
-		if (line == "") {
+		if (line.is_empty()) {
 			print_line("\nDebugger Break, Reason: '" + script_lang->debug_get_error() + "'");
 			print_line("*Frame " + itos(current_frame) + " - " + script_lang->debug_get_stack_level_source(current_frame) + ":" + itos(script_lang->debug_get_stack_level_line(current_frame)) + " in function '" + script_lang->debug_get_stack_level_function(current_frame) + "'");
 			print_line("Enter \"help\" for assistance.");
@@ -166,8 +165,8 @@ void LocalDebugger::debug(bool p_can_continue, bool p_is_error_breakpoint) {
 
 		} else if (line.begins_with("set")) {
 			if (line.get_slice_count(" ") == 1) {
-				for (Map<String, String>::Element *E = options.front(); E; E = E->next()) {
-					print_line("\t" + E->key() + "=" + E->value());
+				for (const KeyValue<String, String> &E : options) {
+					print_line("\t" + E.key + "=" + E.value);
 				}
 
 			} else {
@@ -183,7 +182,7 @@ void LocalDebugger::debug(bool p_can_continue, bool p_is_error_breakpoint) {
 						print_line("Error: Unknown option " + key);
 					} else {
 						// Allow explicit tab character
-						String value = key_value.right(value_pos + 1).replace("\\t", "\t");
+						String value = key_value.substr(value_pos + 1).replace("\\t", "\t");
 
 						options[key] = value;
 					}
@@ -242,15 +241,15 @@ void LocalDebugger::debug(bool p_can_continue, bool p_is_error_breakpoint) {
 
 		} else if (line.begins_with("br") || line.begins_with("break")) {
 			if (line.get_slice_count(" ") <= 1) {
-				const Map<int, Set<StringName>> &breakpoints = script_debugger->get_breakpoints();
+				const HashMap<int, HashSet<StringName>> &breakpoints = script_debugger->get_breakpoints();
 				if (breakpoints.size() == 0) {
 					print_line("No Breakpoints.");
 					continue;
 				}
 
 				print_line("Breakpoint(s): " + itos(breakpoints.size()));
-				for (Map<int, Set<StringName>>::Element *E = breakpoints.front(); E; E = E->next()) {
-					print_line("\t" + String(E->value().front()->get()) + ":" + itos(E->key()));
+				for (const KeyValue<int, HashSet<StringName>> &E : breakpoints) {
+					print_line("\t" + String(*E.value.begin()) + ":" + itos(E.key));
 				}
 
 			} else {
@@ -274,7 +273,10 @@ void LocalDebugger::debug(bool p_can_continue, bool p_is_error_breakpoint) {
 			script_debugger->set_depth(-1);
 			script_debugger->set_lines_left(-1);
 
-			SceneTree::get_singleton()->quit();
+			MainLoop *main_loop = OS::get_singleton()->get_main_loop();
+			if (main_loop->get_class() == "SceneTree") {
+				main_loop->call("quit");
+			}
 			break;
 		} else if (line.begins_with("delete")) {
 			if (line.get_slice_count(" ") <= 1) {
@@ -320,13 +322,13 @@ void LocalDebugger::print_variables(const List<String> &names, const List<Varian
 	String value;
 	Vector<String> value_lines;
 	const List<Variant>::Element *V = values.front();
-	for (const List<String>::Element *E = names.front(); E; E = E->next()) {
+	for (const String &E : names) {
 		value = String(V->get());
 
 		if (variable_prefix.is_empty()) {
-			print_line(E->get() + ": " + String(V->get()));
+			print_line(E + ": " + String(V->get()));
 		} else {
-			print_line(E->get() + ":");
+			print_line(E + ":");
 			value_lines = value.split("\n");
 			for (int i = 0; i < value_lines.size(); ++i) {
 				print_line(variable_prefix + value_lines[i]);
@@ -348,7 +350,7 @@ Pair<String, int> LocalDebugger::to_breakpoint(const String &p_line) {
 	}
 
 	breakpoint.first = script_debugger->breakpoint_find_source(breakpoint_part.left(last_colon).strip_edges());
-	breakpoint.second = breakpoint_part.right(last_colon).strip_edges().to_int();
+	breakpoint.second = breakpoint_part.substr(last_colon).strip_edges().to_int();
 
 	return breakpoint;
 }
@@ -358,7 +360,7 @@ void LocalDebugger::send_message(const String &p_message, const Array &p_args) {
 	// print_line("MESSAGE: '" + p_message + "' - " + String(Variant(p_args)));
 }
 
-void LocalDebugger::send_error(const String &p_func, const String &p_file, int p_line, const String &p_err, const String &p_descr, ErrorHandlerType p_type) {
+void LocalDebugger::send_error(const String &p_func, const String &p_file, int p_line, const String &p_err, const String &p_descr, bool p_editor_notify, ErrorHandlerType p_type) {
 	print_line("ERROR: '" + (p_descr.is_empty() ? p_err : p_descr) + "'");
 }
 
@@ -370,11 +372,11 @@ LocalDebugger::LocalDebugger() {
 	Profiler scr_prof(
 			scripts_profiler,
 			[](void *p_user, bool p_enable, const Array &p_opts) {
-				((ScriptsProfiler *)p_user)->toggle(p_enable, p_opts);
+				static_cast<ScriptsProfiler *>(p_user)->toggle(p_enable, p_opts);
 			},
 			nullptr,
-			[](void *p_user, float p_frame_time, float p_idle_time, float p_physics_time, float p_physics_frame_time) {
-				((ScriptsProfiler *)p_user)->tick(p_frame_time, p_idle_time, p_physics_time, p_physics_frame_time);
+			[](void *p_user, double p_frame_time, double p_process_time, double p_physics_time, double p_physics_frame_time) {
+				static_cast<ScriptsProfiler *>(p_user)->tick(p_frame_time, p_process_time, p_physics_time, p_physics_frame_time);
 			});
 	register_profiler("scripts", scr_prof);
 }

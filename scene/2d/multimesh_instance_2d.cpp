@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,11 +30,15 @@
 
 #include "multimesh_instance_2d.h"
 
+#include "scene/scene_string_names.h"
+
 void MultiMeshInstance2D::_notification(int p_what) {
-	if (p_what == NOTIFICATION_DRAW) {
-		if (multimesh.is_valid()) {
-			draw_multimesh(multimesh, texture);
-		}
+	switch (p_what) {
+		case NOTIFICATION_DRAW: {
+			if (multimesh.is_valid()) {
+				draw_multimesh(multimesh, texture);
+			}
+		} break;
 	}
 }
 
@@ -57,7 +61,7 @@ void MultiMeshInstance2D::_bind_methods() {
 
 void MultiMeshInstance2D::set_multimesh(const Ref<MultiMesh> &p_multimesh) {
 	multimesh = p_multimesh;
-	update();
+	queue_redraw();
 }
 
 Ref<MultiMesh> MultiMeshInstance2D::get_multimesh() const {
@@ -69,8 +73,8 @@ void MultiMeshInstance2D::set_texture(const Ref<Texture2D> &p_texture) {
 		return;
 	}
 	texture = p_texture;
-	update();
-	emit_signal("texture_changed");
+	queue_redraw();
+	emit_signal(SceneStringNames::get_singleton()->texture_changed);
 }
 
 Ref<Texture2D> MultiMeshInstance2D::get_texture() const {
@@ -79,7 +83,7 @@ Ref<Texture2D> MultiMeshInstance2D::get_texture() const {
 
 void MultiMeshInstance2D::set_normal_map(const Ref<Texture2D> &p_texture) {
 	normal_map = p_texture;
-	update();
+	queue_redraw();
 }
 
 Ref<Texture2D> MultiMeshInstance2D::get_normal_map() const {

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,15 +31,16 @@
 #ifndef REGEX_H
 #define REGEX_H
 
-#include "core/object/reference.h"
+#include "core/object/ref_counted.h"
 #include "core/string/ustring.h"
-#include "core/templates/map.h"
+#include "core/templates/rb_map.h"
 #include "core/templates/vector.h"
 #include "core/variant/array.h"
 #include "core/variant/dictionary.h"
+#include "core/variant/typed_array.h"
 
-class RegExMatch : public Reference {
-	GDCLASS(RegExMatch, Reference);
+class RegExMatch : public RefCounted {
+	GDCLASS(RegExMatch, RefCounted);
 
 	struct Range {
 		int start = 0;
@@ -48,7 +49,7 @@ class RegExMatch : public Reference {
 
 	String subject;
 	Vector<Range> data;
-	Map<String, int> names;
+	HashMap<String, int> names;
 
 	friend class RegEx;
 
@@ -62,16 +63,16 @@ public:
 	int get_group_count() const;
 	Dictionary get_names() const;
 
-	Array get_strings() const;
+	PackedStringArray get_strings() const;
 	String get_string(const Variant &p_name) const;
 	int get_start(const Variant &p_name) const;
 	int get_end(const Variant &p_name) const;
 };
 
-class RegEx : public Reference {
-	GDCLASS(RegEx, Reference);
+class RegEx : public RefCounted {
+	GDCLASS(RegEx, RefCounted);
 
-	void *general_ctx;
+	void *general_ctx = nullptr;
 	void *code = nullptr;
 	String pattern;
 
@@ -81,17 +82,19 @@ protected:
 	static void _bind_methods();
 
 public:
+	static Ref<RegEx> create_from_string(const String &p_pattern);
+
 	void clear();
 	Error compile(const String &p_pattern);
 
 	Ref<RegExMatch> search(const String &p_subject, int p_offset = 0, int p_end = -1) const;
-	Array search_all(const String &p_subject, int p_offset = 0, int p_end = -1) const;
+	TypedArray<RegExMatch> search_all(const String &p_subject, int p_offset = 0, int p_end = -1) const;
 	String sub(const String &p_subject, const String &p_replacement, bool p_all = false, int p_offset = 0, int p_end = -1) const;
 
 	bool is_valid() const;
 	String get_pattern() const;
 	int get_group_count() const;
-	Array get_names() const;
+	PackedStringArray get_names() const;
 
 	RegEx();
 	RegEx(const String &p_pattern);

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -33,14 +33,17 @@
 #include "core/string/print_string.h"
 #include "scene/gui/box_container.h"
 #include "scene/gui/label.h"
+#include "scene/gui/tree.h"
 
 void ReparentDialog::_notification(int p_what) {
-	if (p_what == NOTIFICATION_ENTER_TREE) {
-		connect("confirmed", callable_mp(this, &ReparentDialog::_reparent));
-	}
+	switch (p_what) {
+		case NOTIFICATION_ENTER_TREE: {
+			connect("confirmed", callable_mp(this, &ReparentDialog::_reparent));
+		} break;
 
-	if (p_what == NOTIFICATION_EXIT_TREE) {
-		disconnect("confirmed", callable_mp(this, &ReparentDialog::_reparent));
+		case NOTIFICATION_EXIT_TREE: {
+			disconnect("confirmed", callable_mp(this, &ReparentDialog::_reparent));
+		} break;
 	}
 }
 
@@ -50,12 +53,12 @@ void ReparentDialog::_cancel() {
 
 void ReparentDialog::_reparent() {
 	if (tree->get_selected()) {
-		emit_signal("reparent", tree->get_selected()->get_path(), keep_transform->is_pressed());
+		emit_signal(SNAME("reparent"), tree->get_selected()->get_path(), keep_transform->is_pressed());
 		hide();
 	}
 }
 
-void ReparentDialog::set_current(const Set<Node *> &p_selection) {
+void ReparentDialog::set_current(const HashSet<Node *> &p_selection) {
 	tree->set_marked(p_selection, false, false);
 	//tree->set_selected(p_node->get_parent());
 }
@@ -87,7 +90,7 @@ ReparentDialog::ReparentDialog() {
 
 	//cancel->connect("pressed", this,"_cancel");
 
-	get_ok_button()->set_text(TTR("Reparent"));
+	set_ok_button_text(TTR("Reparent"));
 }
 
 ReparentDialog::~ReparentDialog() {

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -28,15 +28,13 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 
-// note, swapped java and godot around in the file name so all the java
-// wrappers are together
-
 #ifndef JAVA_GODOT_WRAPPER_H
 #define JAVA_GODOT_WRAPPER_H
 
 #include <android/log.h>
 #include <jni.h>
 
+#include "core/templates/list.h"
 #include "java_godot_view_wrapper.h"
 #include "string_android.h"
 
@@ -48,27 +46,30 @@ private:
 	jclass godot_class;
 	jclass activity_class;
 
-	GodotJavaViewWrapper *_godot_view = nullptr;
+	GodotJavaViewWrapper *godot_view = nullptr;
 
-	jmethodID _on_video_init = 0;
-	jmethodID _restart = 0;
-	jmethodID _finish = 0;
-	jmethodID _set_keep_screen_on = 0;
-	jmethodID _alert = 0;
-	jmethodID _get_GLES_version_code = 0;
-	jmethodID _get_clipboard = 0;
-	jmethodID _set_clipboard = 0;
-	jmethodID _request_permission = 0;
-	jmethodID _request_permissions = 0;
-	jmethodID _get_granted_permissions = 0;
-	jmethodID _init_input_devices = 0;
-	jmethodID _get_surface = 0;
-	jmethodID _is_activity_resumed = 0;
-	jmethodID _vibrate = 0;
-	jmethodID _get_input_fallback_mapping = 0;
-	jmethodID _on_godot_setup_completed = 0;
-	jmethodID _on_godot_main_loop_started = 0;
-	jmethodID _get_class_loader = 0;
+	jmethodID _on_video_init = nullptr;
+	jmethodID _restart = nullptr;
+	jmethodID _finish = nullptr;
+	jmethodID _set_keep_screen_on = nullptr;
+	jmethodID _alert = nullptr;
+	jmethodID _get_GLES_version_code = nullptr;
+	jmethodID _get_clipboard = nullptr;
+	jmethodID _set_clipboard = nullptr;
+	jmethodID _has_clipboard = nullptr;
+	jmethodID _request_permission = nullptr;
+	jmethodID _request_permissions = nullptr;
+	jmethodID _get_granted_permissions = nullptr;
+	jmethodID _init_input_devices = nullptr;
+	jmethodID _get_surface = nullptr;
+	jmethodID _is_activity_resumed = nullptr;
+	jmethodID _vibrate = nullptr;
+	jmethodID _get_input_fallback_mapping = nullptr;
+	jmethodID _on_godot_setup_completed = nullptr;
+	jmethodID _on_godot_main_loop_started = nullptr;
+	jmethodID _get_class_loader = nullptr;
+	jmethodID _create_new_godot_instance = nullptr;
+	jmethodID _get_render_view = nullptr;
 
 public:
 	GodotJavaWrapper(JNIEnv *p_env, jobject p_activity, jobject p_godot_instance);
@@ -80,7 +81,7 @@ public:
 	jobject get_class_loader();
 	GodotJavaViewWrapper *get_godot_view();
 
-	void on_video_init(JNIEnv *p_env = nullptr);
+	bool on_video_init(JNIEnv *p_env = nullptr);
 	void on_godot_setup_completed(JNIEnv *p_env = nullptr);
 	void on_godot_main_loop_started(JNIEnv *p_env = nullptr);
 	void restart(JNIEnv *p_env = nullptr);
@@ -92,6 +93,8 @@ public:
 	String get_clipboard();
 	bool has_set_clipboard();
 	void set_clipboard(const String &p_text);
+	bool has_has_clipboard();
+	bool has_clipboard();
 	bool request_permission(const String &p_name);
 	bool request_permissions();
 	Vector<String> get_granted_permissions() const;
@@ -100,6 +103,7 @@ public:
 	bool is_activity_resumed();
 	void vibrate(int p_duration_ms);
 	String get_input_fallback_mapping();
+	void create_new_godot_instance(List<String> args);
 };
 
-#endif /* !JAVA_GODOT_WRAPPER_H */
+#endif // JAVA_GODOT_WRAPPER_H

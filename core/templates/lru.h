@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -35,7 +35,7 @@
 #include "hash_map.h"
 #include "list.h"
 
-template <class TKey, class TData>
+template <class TKey, class TData, class Hasher = HashMapHasherDefault, class Comparator = HashMapComparatorDefault<TKey>>
 class LRUCache {
 private:
 	struct Pair {
@@ -52,7 +52,7 @@ private:
 	typedef typename List<Pair>::Element *Element;
 
 	List<Pair> _list;
-	HashMap<TKey, Element> _map;
+	HashMap<TKey, Element, Hasher, Comparator> _map;
 	size_t capacity;
 
 public:
@@ -102,6 +102,7 @@ public:
 	}
 
 	_FORCE_INLINE_ size_t get_capacity() const { return capacity; }
+	_FORCE_INLINE_ size_t get_size() const { return _map.size(); }
 
 	void set_capacity(size_t p_capacity) {
 		if (capacity > 0) {
@@ -123,4 +124,4 @@ public:
 	}
 };
 
-#endif
+#endif // LRU_H

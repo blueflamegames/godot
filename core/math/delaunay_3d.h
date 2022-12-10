@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,11 +31,10 @@
 #ifndef DELAUNAY_3D_H
 #define DELAUNAY_3D_H
 
+#include "core/io/file_access.h"
 #include "core/math/aabb.h"
-#include "core/math/camera_matrix.h"
+#include "core/math/projection.h"
 #include "core/math/vector3.h"
-#include "core/os/file_access.h"
-#include "core/string/print_string.h"
 #include "core/templates/local_vector.h"
 #include "core/templates/oa_hash_map.h"
 #include "core/templates/vector.h"
@@ -101,7 +100,7 @@ class Delaunay3D {
 		_FORCE_INLINE_ static uint32_t hash(const Triangle &p_triangle) {
 			uint32_t h = hash_djb2_one_32(p_triangle.triangle[0]);
 			h = hash_djb2_one_32(p_triangle.triangle[1], h);
-			return hash_djb2_one_32(p_triangle.triangle[2], h);
+			return hash_fmix32(hash_djb2_one_32(p_triangle.triangle[2], h));
 		}
 	};
 
@@ -184,27 +183,27 @@ class Delaunay3D {
 			return true;
 		}
 
-		CameraMatrix cm;
+		Projection cm;
 
-		cm.matrix[0][0] = p_points[p_simplex.points[0]].x;
-		cm.matrix[0][1] = p_points[p_simplex.points[1]].x;
-		cm.matrix[0][2] = p_points[p_simplex.points[2]].x;
-		cm.matrix[0][3] = p_points[p_simplex.points[3]].x;
+		cm.columns[0][0] = p_points[p_simplex.points[0]].x;
+		cm.columns[0][1] = p_points[p_simplex.points[1]].x;
+		cm.columns[0][2] = p_points[p_simplex.points[2]].x;
+		cm.columns[0][3] = p_points[p_simplex.points[3]].x;
 
-		cm.matrix[1][0] = p_points[p_simplex.points[0]].y;
-		cm.matrix[1][1] = p_points[p_simplex.points[1]].y;
-		cm.matrix[1][2] = p_points[p_simplex.points[2]].y;
-		cm.matrix[1][3] = p_points[p_simplex.points[3]].y;
+		cm.columns[1][0] = p_points[p_simplex.points[0]].y;
+		cm.columns[1][1] = p_points[p_simplex.points[1]].y;
+		cm.columns[1][2] = p_points[p_simplex.points[2]].y;
+		cm.columns[1][3] = p_points[p_simplex.points[3]].y;
 
-		cm.matrix[2][0] = p_points[p_simplex.points[0]].z;
-		cm.matrix[2][1] = p_points[p_simplex.points[1]].z;
-		cm.matrix[2][2] = p_points[p_simplex.points[2]].z;
-		cm.matrix[2][3] = p_points[p_simplex.points[3]].z;
+		cm.columns[2][0] = p_points[p_simplex.points[0]].z;
+		cm.columns[2][1] = p_points[p_simplex.points[1]].z;
+		cm.columns[2][2] = p_points[p_simplex.points[2]].z;
+		cm.columns[2][3] = p_points[p_simplex.points[3]].z;
 
-		cm.matrix[3][0] = 1.0;
-		cm.matrix[3][1] = 1.0;
-		cm.matrix[3][2] = 1.0;
-		cm.matrix[3][3] = 1.0;
+		cm.columns[3][0] = 1.0;
+		cm.columns[3][1] = 1.0;
+		cm.columns[3][2] = 1.0;
+		cm.columns[3][3] = 1.0;
 
 		return ABS(cm.determinant()) <= CMP_EPSILON;
 	}
@@ -323,7 +322,6 @@ public:
 				E = N;
 			}
 
-			uint32_t good_triangles = 0;
 			for (uint32_t j = 0; j < triangles.size(); j++) {
 				if (triangles[j].bad) {
 					continue;
@@ -360,11 +358,8 @@ public:
 						}
 					}
 				}
-
-				good_triangles++;
 			}
 
-			//print_line("at point " + itos(i) + "/" + itos(point_count) + " simplices added " + itos(good_triangles) + "/" + itos(simplex_list.size()) + " - triangles: " + itos(triangles.size()));
 			triangles.clear();
 			triangles_inserted.clear();
 		}
@@ -375,8 +370,7 @@ public:
 		OutputSimplex *ret_simplicesw = ret_simplices.ptrw();
 		uint32_t simplices_written = 0;
 
-		for (List<Simplex *>::Element *E = simplex_list.front(); E; E = E->next()) {
-			Simplex *simplex = E->get();
+		for (Simplex *simplex : simplex_list) {
 			bool invalid = false;
 			for (int j = 0; j < 4; j++) {
 				if (simplex->points[j] >= point_count) {

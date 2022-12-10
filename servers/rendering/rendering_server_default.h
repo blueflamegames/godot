@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,9 +31,8 @@
 #ifndef RENDERING_SERVER_DEFAULT_H
 #define RENDERING_SERVER_DEFAULT_H
 
-#include "core/math/octree.h"
 #include "core/templates/command_queue_mt.h"
-#include "core/templates/ordered_hash_map.h"
+#include "core/templates/hash_map.h"
 #include "renderer_canvas_cull.h"
 #include "renderer_scene_cull.h"
 #include "renderer_viewport.h"
@@ -58,28 +57,18 @@ class RenderingServerDefault : public RenderingServer {
 	static int changes;
 	RID test_cube;
 
-	int black_margin[4];
-	RID black_image[4];
+	List<Callable> frame_drawn_callbacks;
 
-	struct FrameDrawnCallbacks {
-		ObjectID object;
-		StringName method;
-		Variant param;
-	};
-
-	List<FrameDrawnCallbacks> frame_drawn_callbacks;
-
-	void _draw_margins();
 	static void _changes_changed() {}
 
 	uint64_t frame_profile_frame;
 	Vector<FrameProfileArea> frame_profile;
 
-	float frame_setup_time = 0;
+	double frame_setup_time = 0;
 
 	//for printing
 	bool print_gpu_profile = false;
-	OrderedHashMap<String, float> print_gpu_profile_task_time;
+	HashMap<String, float> print_gpu_profile_task_time;
 	uint64_t print_frame_profile_ticks_from = 0;
 	uint32_t print_frame_profile_frame_count = 0;
 
@@ -94,7 +83,6 @@ class RenderingServerDefault : public RenderingServer {
 	SafeFlag draw_thread_up;
 	bool create_thread;
 
-	SafeNumeric<uint64_t> draw_pending;
 	void _thread_draw(bool p_swap_buffers, double frame_step);
 	void _thread_flush();
 
@@ -123,7 +111,9 @@ public:
 	_changes_changed();
 
 #else
-	_FORCE_INLINE_ static void redraw_request() { changes++; }
+	_FORCE_INLINE_ static void redraw_request() {
+		changes++;
+	}
 #endif
 
 #define WRITE_ACTION redraw_request();
@@ -136,54 +126,53 @@ public:
 
 #include "servers/server_wrap_mt_common.h"
 
-//from now on, calls forwarded to this singleton
-#define ServerName RendererStorage
-#define server_name RSG::storage
-
 	/* TEXTURE API */
 
-#define FUNCRIDTEX0(m_type)                                                                           \
-	virtual RID m_type##_create() override {                                                          \
-		RID ret = RSG::storage->texture_allocate();                                                   \
-		if (Thread::get_caller_id() == server_thread || RSG::storage->can_create_resources_async()) { \
-			RSG::storage->m_type##_initialize(ret);                                                   \
-		} else {                                                                                      \
-			command_queue.push(RSG::storage, &RendererStorage::m_type##_initialize, ret);             \
-		}                                                                                             \
-		return ret;                                                                                   \
+#define ServerName RendererTextureStorage
+#define server_name RSG::texture_storage
+
+#define FUNCRIDTEX0(m_type)                                                                                   \
+	virtual RID m_type##_create() override {                                                                  \
+		RID ret = RSG::texture_storage->texture_allocate();                                                   \
+		if (Thread::get_caller_id() == server_thread || RSG::texture_storage->can_create_resources_async()) { \
+			RSG::texture_storage->m_type##_initialize(ret);                                                   \
+		} else {                                                                                              \
+			command_queue.push(RSG::texture_storage, &RendererTextureStorage::m_type##_initialize, ret);      \
+		}                                                                                                     \
+		return ret;                                                                                           \
 	}
 
-#define FUNCRIDTEX1(m_type, m_type1)                                                                  \
-	virtual RID m_type##_create(m_type1 p1) override {                                                \
-		RID ret = RSG::storage->texture_allocate();                                                   \
-		if (Thread::get_caller_id() == server_thread || RSG::storage->can_create_resources_async()) { \
-			RSG::storage->m_type##_initialize(ret, p1);                                               \
-		} else {                                                                                      \
-			command_queue.push(RSG::storage, &RendererStorage::m_type##_initialize, ret, p1);         \
-		}                                                                                             \
-		return ret;                                                                                   \
+#define FUNCRIDTEX1(m_type, m_type1)                                                                          \
+	virtual RID m_type##_create(m_type1 p1) override {                                                        \
+		RID ret = RSG::texture_storage->texture_allocate();                                                   \
+		if (Thread::get_caller_id() == server_thread || RSG::texture_storage->can_create_resources_async()) { \
+			RSG::texture_storage->m_type##_initialize(ret, p1);                                               \
+		} else {                                                                                              \
+			command_queue.push(RSG::texture_storage, &RendererTextureStorage::m_type##_initialize, ret, p1);  \
+		}                                                                                                     \
+		return ret;                                                                                           \
 	}
 
-#define FUNCRIDTEX2(m_type, m_type1, m_type2)                                                         \
-	virtual RID m_type##_create(m_type1 p1, m_type2 p2) override {                                    \
-		RID ret = RSG::storage->texture_allocate();                                                   \
-		if (Thread::get_caller_id() == server_thread || RSG::storage->can_create_resources_async()) { \
-			RSG::storage->m_type##_initialize(ret, p1, p2);                                           \
-		} else {                                                                                      \
-			command_queue.push(RSG::storage, &RendererStorage::m_type##_initialize, ret, p1, p2);     \
-		}                                                                                             \
-		return ret;                                                                                   \
+#define FUNCRIDTEX2(m_type, m_type1, m_type2)                                                                    \
+	virtual RID m_type##_create(m_type1 p1, m_type2 p2) override {                                               \
+		RID ret = RSG::texture_storage->texture_allocate();                                                      \
+		if (Thread::get_caller_id() == server_thread || RSG::texture_storage->can_create_resources_async()) {    \
+			RSG::texture_storage->m_type##_initialize(ret, p1, p2);                                              \
+		} else {                                                                                                 \
+			command_queue.push(RSG::texture_storage, &RendererTextureStorage::m_type##_initialize, ret, p1, p2); \
+		}                                                                                                        \
+		return ret;                                                                                              \
 	}
 
-#define FUNCRIDTEX6(m_type, m_type1, m_type2, m_type3, m_type4, m_type5, m_type6)                                  \
-	virtual RID m_type##_create(m_type1 p1, m_type2 p2, m_type3 p3, m_type4 p4, m_type5 p5, m_type6 p6) override { \
-		RID ret = RSG::storage->texture_allocate();                                                                \
-		if (Thread::get_caller_id() == server_thread || RSG::storage->can_create_resources_async()) {              \
-			RSG::storage->m_type##_initialize(ret, p1, p2, p3, p4, p5, p6);                                        \
-		} else {                                                                                                   \
-			command_queue.push(RSG::storage, &RendererStorage::m_type##_initialize, ret, p1, p2, p3, p4, p5, p6);  \
-		}                                                                                                          \
-		return ret;                                                                                                \
+#define FUNCRIDTEX6(m_type, m_type1, m_type2, m_type3, m_type4, m_type5, m_type6)                                                \
+	virtual RID m_type##_create(m_type1 p1, m_type2 p2, m_type3 p3, m_type4 p4, m_type5 p5, m_type6 p6) override {               \
+		RID ret = RSG::texture_storage->texture_allocate();                                                                      \
+		if (Thread::get_caller_id() == server_thread || RSG::texture_storage->can_create_resources_async()) {                    \
+			RSG::texture_storage->m_type##_initialize(ret, p1, p2, p3, p4, p5, p6);                                              \
+		} else {                                                                                                                 \
+			command_queue.push(RSG::texture_storage, &RendererTextureStorage::m_type##_initialize, ret, p1, p2, p3, p4, p5, p6); \
+		}                                                                                                                        \
+		return ret;                                                                                                              \
 	}
 
 	//these go pass-through, as they can be called from any thread
@@ -192,8 +181,6 @@ public:
 	FUNCRIDTEX6(texture_3d, Image::Format, int, int, int, bool, const Vector<Ref<Image>> &)
 	FUNCRIDTEX1(texture_proxy, RID)
 
-	//goes pass-through
-	FUNC3(texture_2d_update_immediate, RID, const Ref<Image> &, int)
 	//these go through command queue if they are in another thread
 	FUNC3(texture_2d_update, RID, const Ref<Image> &, int)
 	FUNC2(texture_3d_update, RID, const Vector<Ref<Image>> &)
@@ -225,19 +212,27 @@ public:
 	FUNC1(texture_debug_usage, List<TextureInfo> *)
 
 	FUNC2(texture_set_force_redraw_if_visible, RID, bool)
+	FUNC2RC(RID, texture_get_rd_texture_rid, RID, bool)
 
 	/* SHADER API */
+
+#undef ServerName
+#undef server_name
+
+#define ServerName RendererMaterialStorage
+#define server_name RSG::material_storage
 
 	FUNCRIDSPLIT(shader)
 
 	FUNC2(shader_set_code, RID, const String &)
+	FUNC2(shader_set_path_hint, RID, const String &)
 	FUNC1RC(String, shader_get_code, RID)
 
-	FUNC2SC(shader_get_param_list, RID, List<PropertyInfo> *)
+	FUNC2SC(get_shader_parameter_list, RID, List<PropertyInfo> *)
 
-	FUNC3(shader_set_default_texture_param, RID, const StringName &, RID)
-	FUNC2RC(RID, shader_get_default_texture_param, RID, const StringName &)
-	FUNC2RC(Variant, shader_get_param_default, RID, const StringName &)
+	FUNC4(shader_set_default_texture_parameter, RID, const StringName &, RID, int)
+	FUNC3RC(RID, shader_get_default_texture_parameter, RID, const StringName &, int)
+	FUNC2RC(Variant, shader_get_parameter_default, RID, const StringName &)
 
 	FUNC1RC(ShaderNativeSourceCode, shader_get_native_source_code, RID)
 
@@ -255,24 +250,32 @@ public:
 
 	/* MESH API */
 
-	virtual RID mesh_create_from_surfaces(const Vector<SurfaceData> &p_surfaces, int p_blend_shape_count = 0) override {
-		RID mesh = RSG::storage->mesh_allocate();
+//from now on, calls forwarded to this singleton
+#undef ServerName
+#undef server_name
 
-		if (Thread::get_caller_id() == server_thread || RSG::storage->can_create_resources_async()) {
+#define ServerName RendererMeshStorage
+#define server_name RSG::mesh_storage
+
+	virtual RID mesh_create_from_surfaces(const Vector<SurfaceData> &p_surfaces, int p_blend_shape_count = 0) override {
+		RID mesh = RSG::mesh_storage->mesh_allocate();
+
+		// TODO once we have RSG::mesh_storage, add can_create_resources_async and call here instead of texture_storage!!
+
+		if (Thread::get_caller_id() == server_thread || RSG::texture_storage->can_create_resources_async()) {
 			if (Thread::get_caller_id() == server_thread) {
 				command_queue.flush_if_pending();
 			}
-			RSG::storage->mesh_initialize(mesh);
-			RSG::storage->mesh_set_blend_shape_count(mesh, p_blend_shape_count);
+			RSG::mesh_storage->mesh_initialize(mesh);
+			RSG::mesh_storage->mesh_set_blend_shape_count(mesh, p_blend_shape_count);
 			for (int i = 0; i < p_surfaces.size(); i++) {
-				RSG::storage->mesh_add_surface(mesh, p_surfaces[i]);
+				RSG::mesh_storage->mesh_add_surface(mesh, p_surfaces[i]);
 			}
 		} else {
-			command_queue.push(RSG::storage, &RendererStorage::mesh_initialize, mesh);
-			command_queue.push(RSG::storage, &RendererStorage::mesh_set_blend_shape_count, mesh, p_blend_shape_count);
+			command_queue.push(RSG::mesh_storage, &RendererMeshStorage::mesh_initialize, mesh);
+			command_queue.push(RSG::mesh_storage, &RendererMeshStorage::mesh_set_blend_shape_count, mesh, p_blend_shape_count);
 			for (int i = 0; i < p_surfaces.size(); i++) {
-				RSG::storage->mesh_add_surface(mesh, p_surfaces[i]);
-				command_queue.push(RSG::storage, &RendererStorage::mesh_add_surface, mesh, p_surfaces[i]);
+				command_queue.push(RSG::mesh_storage, &RendererMeshStorage::mesh_add_surface, mesh, p_surfaces[i]);
 			}
 		}
 
@@ -290,7 +293,9 @@ public:
 	FUNC2(mesh_set_blend_shape_mode, RID, BlendShapeMode)
 	FUNC1RC(BlendShapeMode, mesh_get_blend_shape_mode, RID)
 
-	FUNC4(mesh_surface_update_region, RID, int, int, const Vector<uint8_t> &)
+	FUNC4(mesh_surface_update_vertex_region, RID, int, int, const Vector<uint8_t> &)
+	FUNC4(mesh_surface_update_attribute_region, RID, int, int, const Vector<uint8_t> &)
+	FUNC4(mesh_surface_update_skin_region, RID, int, int, const Vector<uint8_t> &)
 
 	FUNC3(mesh_surface_set_material, RID, int, RID)
 	FUNC2RC(RID, mesh_surface_get_material, RID, int)
@@ -314,7 +319,7 @@ public:
 	FUNC1RC(int, multimesh_get_instance_count, RID)
 
 	FUNC2(multimesh_set_mesh, RID, RID)
-	FUNC3(multimesh_instance_set_transform, RID, int, const Transform &)
+	FUNC3(multimesh_instance_set_transform, RID, int, const Transform3D &)
 	FUNC3(multimesh_instance_set_transform_2d, RID, int, const Transform2D &)
 	FUNC3(multimesh_instance_set_color, RID, int, const Color &)
 	FUNC3(multimesh_instance_set_custom_data, RID, int, const Color &)
@@ -322,7 +327,7 @@ public:
 	FUNC1RC(RID, multimesh_get_mesh, RID)
 	FUNC1RC(AABB, multimesh_get_aabb, RID)
 
-	FUNC2RC(Transform, multimesh_instance_get_transform, RID, int)
+	FUNC2RC(Transform3D, multimesh_instance_get_transform, RID, int)
 	FUNC2RC(Transform2D, multimesh_instance_get_transform_2d, RID, int)
 	FUNC2RC(Color, multimesh_instance_get_color, RID, int)
 	FUNC2RC(Color, multimesh_instance_get_custom_data, RID, int)
@@ -333,33 +338,23 @@ public:
 	FUNC2(multimesh_set_visible_instances, RID, int)
 	FUNC1RC(int, multimesh_get_visible_instances, RID)
 
-	/* IMMEDIATE API */
-
-	FUNCRIDSPLIT(immediate)
-	FUNC3(immediate_begin, RID, PrimitiveType, RID)
-	FUNC2(immediate_vertex, RID, const Vector3 &)
-	FUNC2(immediate_normal, RID, const Vector3 &)
-	FUNC2(immediate_tangent, RID, const Plane &)
-	FUNC2(immediate_color, RID, const Color &)
-	FUNC2(immediate_uv, RID, const Vector2 &)
-	FUNC2(immediate_uv2, RID, const Vector2 &)
-	FUNC1(immediate_end, RID)
-	FUNC1(immediate_clear, RID)
-	FUNC2(immediate_set_material, RID, RID)
-	FUNC1RC(RID, immediate_get_material, RID)
-
 	/* SKELETON API */
 
 	FUNCRIDSPLIT(skeleton)
 	FUNC3(skeleton_allocate_data, RID, int, bool)
 	FUNC1RC(int, skeleton_get_bone_count, RID)
-	FUNC3(skeleton_bone_set_transform, RID, int, const Transform &)
-	FUNC2RC(Transform, skeleton_bone_get_transform, RID, int)
+	FUNC3(skeleton_bone_set_transform, RID, int, const Transform3D &)
+	FUNC2RC(Transform3D, skeleton_bone_get_transform, RID, int)
 	FUNC3(skeleton_bone_set_transform_2d, RID, int, const Transform2D &)
 	FUNC2RC(Transform2D, skeleton_bone_get_transform_2d, RID, int)
 	FUNC2(skeleton_set_base_transform_2d, RID, const Transform2D &)
 
 	/* Light API */
+#undef ServerName
+#undef server_name
+
+#define ServerName RendererLightStorage
+#define server_name RSG::light_storage
 
 	FUNCRIDSPLIT(directional_light)
 	FUNCRIDSPLIT(omni_light)
@@ -368,10 +363,10 @@ public:
 	FUNC2(light_set_color, RID, const Color &)
 	FUNC3(light_set_param, RID, LightParam, float)
 	FUNC2(light_set_shadow, RID, bool)
-	FUNC2(light_set_shadow_color, RID, const Color &)
 	FUNC2(light_set_projector, RID, RID)
 	FUNC2(light_set_negative, RID, bool)
 	FUNC2(light_set_cull_mask, RID, uint32_t)
+	FUNC5(light_set_distance_fade, RID, bool, float, float, float)
 	FUNC2(light_set_reverse_cull_face_mode, RID, bool)
 	FUNC2(light_set_bake_mode, RID, LightBakeMode)
 	FUNC2(light_set_max_sdfgi_cascade, RID, uint32_t)
@@ -380,8 +375,7 @@ public:
 
 	FUNC2(light_directional_set_shadow_mode, RID, LightDirectionalShadowMode)
 	FUNC2(light_directional_set_blend_splits, RID, bool)
-	FUNC2(light_directional_set_sky_only, RID, bool)
-	FUNC2(light_directional_set_shadow_depth_range_mode, RID, LightDirectionalShadowDepthRangeMode)
+	FUNC2(light_directional_set_sky_mode, RID, LightDirectionalSkyMode)
 
 	/* PROBE API */
 
@@ -400,9 +394,37 @@ public:
 	FUNC2(reflection_probe_set_enable_shadows, RID, bool)
 	FUNC2(reflection_probe_set_cull_mask, RID, uint32_t)
 	FUNC2(reflection_probe_set_resolution, RID, int)
-	FUNC2(reflection_probe_set_lod_threshold, RID, float)
+	FUNC2(reflection_probe_set_mesh_lod_threshold, RID, float)
+
+	/* LIGHTMAP */
+
+	FUNCRIDSPLIT(lightmap)
+
+	FUNC3(lightmap_set_textures, RID, RID, bool)
+	FUNC2(lightmap_set_probe_bounds, RID, const AABB &)
+	FUNC2(lightmap_set_probe_interior, RID, bool)
+	FUNC5(lightmap_set_probe_capture_data, RID, const PackedVector3Array &, const PackedColorArray &, const PackedInt32Array &, const PackedInt32Array &)
+	FUNC2(lightmap_set_baked_exposure_normalization, RID, float)
+	FUNC1RC(PackedVector3Array, lightmap_get_probe_capture_points, RID)
+	FUNC1RC(PackedColorArray, lightmap_get_probe_capture_sh, RID)
+	FUNC1RC(PackedInt32Array, lightmap_get_probe_capture_tetrahedra, RID)
+	FUNC1RC(PackedInt32Array, lightmap_get_probe_capture_bsp_tree, RID)
+	FUNC1(lightmap_set_probe_capture_update_speed, float)
+
+	/* Shadow Atlas */
+	FUNC0R(RID, shadow_atlas_create)
+	FUNC3(shadow_atlas_set_size, RID, int, bool)
+	FUNC3(shadow_atlas_set_quadrant_subdivision, RID, int, int)
+
+	FUNC2(directional_shadow_atlas_set_size, int, bool)
 
 	/* DECAL API */
+
+#undef ServerName
+#undef server_name
+
+#define ServerName RendererTextureStorage
+#define server_name RSG::texture_storage
 
 	FUNCRIDSPLIT(decal)
 
@@ -418,86 +440,71 @@ public:
 
 	/* BAKED LIGHT API */
 
-	FUNCRIDSPLIT(gi_probe)
+//from now on, calls forwarded to this singleton
+#undef ServerName
+#undef server_name
 
-	FUNC8(gi_probe_allocate_data, RID, const Transform &, const AABB &, const Vector3i &, const Vector<uint8_t> &, const Vector<uint8_t> &, const Vector<uint8_t> &, const Vector<int> &)
+#define ServerName RendererGI
+#define server_name RSG::gi
 
-	FUNC1RC(AABB, gi_probe_get_bounds, RID)
-	FUNC1RC(Vector3i, gi_probe_get_octree_size, RID)
-	FUNC1RC(Vector<uint8_t>, gi_probe_get_octree_cells, RID)
-	FUNC1RC(Vector<uint8_t>, gi_probe_get_data_cells, RID)
-	FUNC1RC(Vector<uint8_t>, gi_probe_get_distance_field, RID)
-	FUNC1RC(Vector<int>, gi_probe_get_level_counts, RID)
-	FUNC1RC(Transform, gi_probe_get_to_cell_xform, RID)
+	FUNCRIDSPLIT(voxel_gi)
 
-	FUNC2(gi_probe_set_dynamic_range, RID, float)
-	FUNC1RC(float, gi_probe_get_dynamic_range, RID)
+	FUNC8(voxel_gi_allocate_data, RID, const Transform3D &, const AABB &, const Vector3i &, const Vector<uint8_t> &, const Vector<uint8_t> &, const Vector<uint8_t> &, const Vector<int> &)
 
-	FUNC2(gi_probe_set_propagation, RID, float)
-	FUNC1RC(float, gi_probe_get_propagation, RID)
+	FUNC1RC(AABB, voxel_gi_get_bounds, RID)
+	FUNC1RC(Vector3i, voxel_gi_get_octree_size, RID)
+	FUNC1RC(Vector<uint8_t>, voxel_gi_get_octree_cells, RID)
+	FUNC1RC(Vector<uint8_t>, voxel_gi_get_data_cells, RID)
+	FUNC1RC(Vector<uint8_t>, voxel_gi_get_distance_field, RID)
+	FUNC1RC(Vector<int>, voxel_gi_get_level_counts, RID)
+	FUNC1RC(Transform3D, voxel_gi_get_to_cell_xform, RID)
 
-	FUNC2(gi_probe_set_energy, RID, float)
-	FUNC1RC(float, gi_probe_get_energy, RID)
-
-	FUNC2(gi_probe_set_ao, RID, float)
-	FUNC1RC(float, gi_probe_get_ao, RID)
-
-	FUNC2(gi_probe_set_ao_size, RID, float)
-	FUNC1RC(float, gi_probe_get_ao_size, RID)
-
-	FUNC2(gi_probe_set_bias, RID, float)
-	FUNC1RC(float, gi_probe_get_bias, RID)
-
-	FUNC2(gi_probe_set_normal_bias, RID, float)
-	FUNC1RC(float, gi_probe_get_normal_bias, RID)
-
-	FUNC2(gi_probe_set_interior, RID, bool)
-	FUNC1RC(bool, gi_probe_is_interior, RID)
-
-	FUNC2(gi_probe_set_use_two_bounces, RID, bool)
-	FUNC1RC(bool, gi_probe_is_using_two_bounces, RID)
-
-	FUNC2(gi_probe_set_anisotropy_strength, RID, float)
-	FUNC1RC(float, gi_probe_get_anisotropy_strength, RID)
-
-	/* LIGHTMAP */
-
-	FUNCRIDSPLIT(lightmap)
-
-	FUNC3(lightmap_set_textures, RID, RID, bool)
-	FUNC2(lightmap_set_probe_bounds, RID, const AABB &)
-	FUNC2(lightmap_set_probe_interior, RID, bool)
-	FUNC5(lightmap_set_probe_capture_data, RID, const PackedVector3Array &, const PackedColorArray &, const PackedInt32Array &, const PackedInt32Array &)
-	FUNC1RC(PackedVector3Array, lightmap_get_probe_capture_points, RID)
-	FUNC1RC(PackedColorArray, lightmap_get_probe_capture_sh, RID)
-	FUNC1RC(PackedInt32Array, lightmap_get_probe_capture_tetrahedra, RID)
-	FUNC1RC(PackedInt32Array, lightmap_get_probe_capture_bsp_tree, RID)
-	FUNC1(lightmap_set_probe_capture_update_speed, float)
+	FUNC2(voxel_gi_set_dynamic_range, RID, float)
+	FUNC2(voxel_gi_set_propagation, RID, float)
+	FUNC2(voxel_gi_set_energy, RID, float)
+	FUNC2(voxel_gi_set_baked_exposure_normalization, RID, float)
+	FUNC2(voxel_gi_set_bias, RID, float)
+	FUNC2(voxel_gi_set_normal_bias, RID, float)
+	FUNC2(voxel_gi_set_interior, RID, bool)
+	FUNC2(voxel_gi_set_use_two_bounces, RID, bool)
 
 	/* PARTICLES */
 
+#undef ServerName
+#undef server_name
+
+#define ServerName RendererParticlesStorage
+#define server_name RSG::particles_storage
+
 	FUNCRIDSPLIT(particles)
 
+	FUNC2(particles_set_mode, RID, ParticlesMode)
 	FUNC2(particles_set_emitting, RID, bool)
 	FUNC1R(bool, particles_get_emitting, RID)
 	FUNC2(particles_set_amount, RID, int)
-	FUNC2(particles_set_lifetime, RID, float)
+	FUNC2(particles_set_lifetime, RID, double)
 	FUNC2(particles_set_one_shot, RID, bool)
-	FUNC2(particles_set_pre_process_time, RID, float)
+	FUNC2(particles_set_pre_process_time, RID, double)
 	FUNC2(particles_set_explosiveness_ratio, RID, float)
 	FUNC2(particles_set_randomness_ratio, RID, float)
 	FUNC2(particles_set_custom_aabb, RID, const AABB &)
-	FUNC2(particles_set_speed_scale, RID, float)
+	FUNC2(particles_set_speed_scale, RID, double)
 	FUNC2(particles_set_use_local_coordinates, RID, bool)
 	FUNC2(particles_set_process_material, RID, RID)
 	FUNC2(particles_set_fixed_fps, RID, int)
+	FUNC2(particles_set_interpolate, RID, bool)
 	FUNC2(particles_set_fractional_delta, RID, bool)
 	FUNC1R(bool, particles_is_inactive, RID)
+	FUNC3(particles_set_trails, RID, bool, float)
+	FUNC2(particles_set_trail_bind_poses, RID, const Vector<Transform3D> &)
+
 	FUNC1(particles_request_process, RID)
 	FUNC1(particles_restart, RID)
-	FUNC6(particles_emit, RID, const Transform &, const Vector3 &, const Color &, const Color &, uint32_t)
+	FUNC6(particles_emit, RID, const Transform3D &, const Vector3 &, const Color &, const Color &, uint32_t)
 	FUNC2(particles_set_subemitter, RID, RID)
 	FUNC2(particles_set_collision_base_size, RID, float)
+
+	FUNC2(particles_set_transform_align, RID, RS::ParticlesTransformAlign)
 
 	FUNC2(particles_set_draw_order, RID, RS::ParticlesDrawOrder)
 
@@ -505,7 +512,7 @@ public:
 	FUNC3(particles_set_draw_pass_mesh, RID, int, RID)
 
 	FUNC1R(AABB, particles_get_current_aabb, RID)
-	FUNC2(particles_set_emission_transform, RID, const Transform &)
+	FUNC2(particles_set_emission_transform, RID, const Transform3D &)
 
 	/* PARTICLES COLLISION */
 
@@ -513,19 +520,45 @@ public:
 
 	FUNC2(particles_collision_set_collision_type, RID, ParticlesCollisionType)
 	FUNC2(particles_collision_set_cull_mask, RID, uint32_t)
-	FUNC2(particles_collision_set_sphere_radius, RID, float)
+	FUNC2(particles_collision_set_sphere_radius, RID, real_t)
 	FUNC2(particles_collision_set_box_extents, RID, const Vector3 &)
-	FUNC2(particles_collision_set_attractor_strength, RID, float)
-	FUNC2(particles_collision_set_attractor_directionality, RID, float)
-	FUNC2(particles_collision_set_attractor_attenuation, RID, float)
+	FUNC2(particles_collision_set_attractor_strength, RID, real_t)
+	FUNC2(particles_collision_set_attractor_directionality, RID, real_t)
+	FUNC2(particles_collision_set_attractor_attenuation, RID, real_t)
 	FUNC2(particles_collision_set_field_texture, RID, RID)
 	FUNC1(particles_collision_height_field_update, RID)
 	FUNC2(particles_collision_set_height_field_resolution, RID, ParticlesCollisionHeightfieldResolution)
 
+	/* FOG VOLUME */
+
+#undef ServerName
+#undef server_name
+
+#define ServerName RendererFog
+#define server_name RSG::fog
+
+	FUNCRIDSPLIT(fog_volume)
+
+	FUNC2(fog_volume_set_shape, RID, FogVolumeShape)
+	FUNC2(fog_volume_set_extents, RID, const Vector3 &)
+	FUNC2(fog_volume_set_material, RID, RID)
+
+	/* VISIBILITY_NOTIFIER */
+
+#undef ServerName
+#undef server_name
+
+#define ServerName RendererUtilities
+#define server_name RSG::utilities
+
+	FUNCRIDSPLIT(visibility_notifier)
+	FUNC2(visibility_notifier_set_aabb, RID, const AABB &)
+	FUNC3(visibility_notifier_set_callbacks, RID, const Callable &, const Callable &)
+
 #undef server_name
 #undef ServerName
 //from now on, calls forwarded to this singleton
-#define ServerName RendererScene
+#define ServerName RenderingMethod
 #define server_name RSG::scene
 
 	/* CAMERA API */
@@ -534,11 +567,15 @@ public:
 	FUNC4(camera_set_perspective, RID, float, float, float)
 	FUNC4(camera_set_orthogonal, RID, float, float, float)
 	FUNC5(camera_set_frustum, RID, float, Vector2, float, float)
-	FUNC2(camera_set_transform, RID, const Transform &)
+	FUNC2(camera_set_transform, RID, const Transform3D &)
 	FUNC2(camera_set_cull_mask, RID, uint32_t)
 	FUNC2(camera_set_environment, RID, RID)
-	FUNC2(camera_set_camera_effects, RID, RID)
+	FUNC2(camera_set_camera_attributes, RID, RID)
 	FUNC2(camera_set_use_vertical_aspect, RID, bool)
+
+	/* OCCLUDER */
+	FUNCRIDSPLIT(occluder)
+	FUNC3(occluder_set_mesh, RID, const PackedVector3Array &, const PackedInt32Array &)
 
 #undef server_name
 #undef ServerName
@@ -561,13 +598,20 @@ public:
 	FUNC3(viewport_attach_to_screen, RID, const Rect2 &, int)
 	FUNC2(viewport_set_render_direct_to_screen, RID, bool)
 
+	FUNC2(viewport_set_scaling_3d_mode, RID, ViewportScaling3DMode)
+	FUNC2(viewport_set_scaling_3d_scale, RID, float)
+	FUNC2(viewport_set_fsr_sharpness, RID, float)
+	FUNC2(viewport_set_texture_mipmap_bias, RID, float)
+
 	FUNC2(viewport_set_update_mode, RID, ViewportUpdateMode)
 
 	FUNC1RC(RID, viewport_get_texture, RID)
 
-	FUNC2(viewport_set_hide_scenario, RID, bool)
-	FUNC2(viewport_set_hide_canvas, RID, bool)
+	FUNC2(viewport_set_disable_2d, RID, bool)
 	FUNC2(viewport_set_disable_environment, RID, bool)
+	FUNC2(viewport_set_disable_3d, RID, bool)
+
+	FUNC2(viewport_set_canvas_cull_mask, RID, uint32_t)
 
 	FUNC2(viewport_attach_camera, RID, RID)
 	FUNC2(viewport_set_scenario, RID, RID)
@@ -584,33 +628,41 @@ public:
 
 	FUNC2(viewport_set_global_canvas_transform, RID, const Transform2D &)
 	FUNC4(viewport_set_canvas_stacking, RID, RID, int, int)
-	FUNC3(viewport_set_shadow_atlas_size, RID, int, bool)
+	FUNC3(viewport_set_positional_shadow_atlas_size, RID, int, bool)
 	FUNC3(viewport_set_sdf_oversize_and_scale, RID, ViewportSDFOversize, ViewportSDFScale)
-	FUNC3(viewport_set_shadow_atlas_quadrant_subdivision, RID, int, int)
-	FUNC2(viewport_set_msaa, RID, ViewportMSAA)
+	FUNC3(viewport_set_positional_shadow_atlas_quadrant_subdivision, RID, int, int)
+	FUNC2(viewport_set_msaa_2d, RID, ViewportMSAA)
+	FUNC2(viewport_set_msaa_3d, RID, ViewportMSAA)
 	FUNC2(viewport_set_screen_space_aa, RID, ViewportScreenSpaceAA)
+	FUNC2(viewport_set_use_taa, RID, bool)
 	FUNC2(viewport_set_use_debanding, RID, bool)
-	FUNC2(viewport_set_lod_threshold, RID, float)
+	FUNC2(viewport_set_use_occlusion_culling, RID, bool)
+	FUNC1(viewport_set_occlusion_rays_per_thread, int)
+	FUNC1(viewport_set_occlusion_culling_build_quality, ViewportOcclusionCullingBuildQuality)
+	FUNC2(viewport_set_mesh_lod_threshold, RID, float)
 
-	FUNC2R(int, viewport_get_render_info, RID, ViewportRenderInfo)
+	FUNC3R(int, viewport_get_render_info, RID, ViewportRenderInfoType, ViewportRenderInfo)
 	FUNC2(viewport_set_debug_draw, RID, ViewportDebugDraw)
 
 	FUNC2(viewport_set_measure_render_time, RID, bool)
-	FUNC1RC(float, viewport_get_measured_render_time_cpu, RID)
-	FUNC1RC(float, viewport_get_measured_render_time_gpu, RID)
+	FUNC1RC(double, viewport_get_measured_render_time_cpu, RID)
+	FUNC1RC(double, viewport_get_measured_render_time_gpu, RID)
+	FUNC1RC(RID, viewport_find_from_screen_attachment, DisplayServer::WindowID)
 
-	FUNC1(call_set_use_vsync, bool)
+	FUNC2(call_set_vsync_mode, DisplayServer::VSyncMode, DisplayServer::WindowID)
+
+	FUNC2(viewport_set_vrs_mode, RID, ViewportVRSMode)
+	FUNC2(viewport_set_vrs_texture, RID, RID)
 
 	/* ENVIRONMENT API */
 
 #undef server_name
 #undef ServerName
 //from now on, calls forwarded to this singleton
-#define ServerName RendererScene
+#define ServerName RenderingMethod
 #define server_name RSG::scene
 
-	FUNC2(directional_shadow_atlas_set_size, int, bool)
-	FUNC1(gi_probe_set_quality, GIProbeQuality)
+	FUNC1(voxel_gi_set_quality, VoxelGIQuality)
 
 	/* SKY API */
 
@@ -627,9 +679,9 @@ public:
 	FUNC2(environment_set_sky_custom_fov, RID, float)
 	FUNC2(environment_set_sky_orientation, RID, const Basis &)
 	FUNC2(environment_set_bg_color, RID, const Color &)
-	FUNC2(environment_set_bg_energy, RID, float)
+	FUNC3(environment_set_bg_energy, RID, float, float)
 	FUNC2(environment_set_canvas_max_layer, RID, int)
-	FUNC7(environment_set_ambient_light, RID, const Color &, EnvironmentAmbientSource, float, float, EnvironmentReflectionSource, const Color &)
+	FUNC6(environment_set_ambient_light, RID, const Color &, EnvironmentAmbientSource, float, float, EnvironmentReflectionSource)
 
 // FIXME: Disabled during Vulkan refactoring, should be ported.
 #if 0
@@ -641,21 +693,24 @@ public:
 	FUNC10(environment_set_ssao, RID, bool, float, float, float, float, float, float, float, float)
 	FUNC6(environment_set_ssao_quality, EnvironmentSSAOQuality, bool, float, int, float, float)
 
-	FUNC11(environment_set_glow, RID, bool, Vector<float>, float, float, float, float, EnvironmentGlowBlendMode, float, float, float)
+	FUNC6(environment_set_ssil, RID, bool, float, float, float, float)
+	FUNC6(environment_set_ssil_quality, EnvironmentSSILQuality, bool, float, int, float, float)
+
+	FUNC13(environment_set_glow, RID, bool, Vector<float>, float, float, float, float, EnvironmentGlowBlendMode, float, float, float, float, RID)
 	FUNC1(environment_glow_set_use_bicubic_upscale, bool)
 	FUNC1(environment_glow_set_use_high_quality, bool)
 
-	FUNC9(environment_set_tonemap, RID, EnvironmentToneMapper, float, float, bool, float, float, float, float)
+	FUNC4(environment_set_tonemap, RID, EnvironmentToneMapper, float, float)
 
 	FUNC7(environment_set_adjustment, RID, bool, float, float, float, bool, RID)
 
-	FUNC9(environment_set_fog, RID, bool, const Color &, float, float, float, float, float, float)
-	FUNC10(environment_set_volumetric_fog, RID, bool, float, const Color &, float, float, float, float, bool, float)
+	FUNC10(environment_set_fog, RID, bool, const Color &, float, float, float, float, float, float, float)
+	FUNC14(environment_set_volumetric_fog, RID, bool, float, const Color &, const Color &, float, float, float, float, float, bool, float, float, float)
 
 	FUNC2(environment_set_volumetric_fog_volume_size, int, int)
 	FUNC1(environment_set_volumetric_fog_filter_active, bool)
 
-	FUNC11(environment_set_sdfgi, RID, bool, EnvironmentSDFGICascades, float, EnvironmentSDFGIYScale, bool, float, bool, float, float, float)
+	FUNC11(environment_set_sdfgi, RID, bool, int, float, EnvironmentSDFGIYScale, bool, float, bool, float, float, float)
 	FUNC1(environment_set_sdfgi_ray_count, EnvironmentSDFGIRayCount)
 	FUNC1(environment_set_sdfgi_frames_to_converge, EnvironmentSDFGIFramesToConverge)
 	FUNC1(environment_set_sdfgi_frames_to_update_light, EnvironmentSDFGIFramesToUpdateLight)
@@ -666,32 +721,40 @@ public:
 	FUNC1(sub_surface_scattering_set_quality, SubSurfaceScatteringQuality)
 	FUNC2(sub_surface_scattering_set_scale, float, float)
 
-	/* CAMERA EFFECTS */
+	FUNC1(positional_soft_shadow_filter_set_quality, ShadowQuality);
+	FUNC1(directional_soft_shadow_filter_set_quality, ShadowQuality);
+	FUNC1(decals_set_filter, RS::DecalFilter);
+	FUNC1(light_projectors_set_filter, RS::LightProjectorFilter);
 
-	FUNCRIDSPLIT(camera_effects)
+	/* CAMERA ATTRIBUTES */
 
-	FUNC2(camera_effects_set_dof_blur_quality, DOFBlurQuality, bool)
-	FUNC1(camera_effects_set_dof_blur_bokeh_shape, DOFBokehShape)
+#undef server_name
+#undef ServerName
+//from now on, calls forwarded to this singleton
+#define ServerName RendererCameraAttributes
+#define server_name RSG::camera_attributes
 
-	FUNC8(camera_effects_set_dof_blur, RID, bool, float, float, bool, float, float, float)
-	FUNC3(camera_effects_set_custom_exposure, RID, bool, float)
+	FUNCRIDSPLIT(camera_attributes)
 
-	FUNC1(shadows_quality_set, ShadowQuality);
-	FUNC1(directional_shadow_quality_set, ShadowQuality);
+	FUNC2(camera_attributes_set_dof_blur_quality, DOFBlurQuality, bool)
+	FUNC1(camera_attributes_set_dof_blur_bokeh_shape, DOFBokehShape)
+
+	FUNC8(camera_attributes_set_dof_blur, RID, bool, float, float, bool, float, float, float)
+	FUNC3(camera_attributes_set_exposure, RID, float, float)
+	FUNC6(camera_attributes_set_auto_exposure, RID, bool, float, float, float, float)
 
 	/* SCENARIO API */
 
 #undef server_name
 #undef ServerName
 
-#define ServerName RendererScene
+#define ServerName RenderingMethod
 #define server_name RSG::scene
 
 	FUNCRIDSPLIT(scenario)
 
-	FUNC2(scenario_set_debug, RID, ScenarioDebugMode)
 	FUNC2(scenario_set_environment, RID, RID)
-	FUNC2(scenario_set_camera_effects, RID, RID)
+	FUNC2(scenario_set_camera_attributes, RID, RID)
 	FUNC2(scenario_set_fallback_environment, RID, RID)
 
 	/* INSTANCING API */
@@ -700,18 +763,20 @@ public:
 	FUNC2(instance_set_base, RID, RID)
 	FUNC2(instance_set_scenario, RID, RID)
 	FUNC2(instance_set_layer_mask, RID, uint32_t)
-	FUNC2(instance_set_transform, RID, const Transform &)
+	FUNC2(instance_set_transform, RID, const Transform3D &)
 	FUNC2(instance_attach_object_instance_id, RID, ObjectID)
 	FUNC3(instance_set_blend_shape_weight, RID, int, float)
-	FUNC3(instance_set_surface_material, RID, int, RID)
+	FUNC3(instance_set_surface_override_material, RID, int, RID)
 	FUNC2(instance_set_visible, RID, bool)
 
 	FUNC2(instance_set_custom_aabb, RID, AABB)
 
 	FUNC2(instance_attach_skeleton, RID, RID)
-	FUNC2(instance_set_exterior, RID, bool)
 
 	FUNC2(instance_set_extra_visibility_margin, RID, real_t)
+	FUNC2(instance_set_visibility_parent, RID, RID)
+
+	FUNC2(instance_set_ignore_culling, RID, bool)
 
 	// don't use these in a game!
 	FUNC2RC(Vector<ObjectID>, instances_cull_aabb, const AABB &, RID)
@@ -721,18 +786,18 @@ public:
 	FUNC3(instance_geometry_set_flag, RID, InstanceFlags, bool)
 	FUNC2(instance_geometry_set_cast_shadows_setting, RID, ShadowCastingSetting)
 	FUNC2(instance_geometry_set_material_override, RID, RID)
+	FUNC2(instance_geometry_set_material_overlay, RID, RID)
 
-	FUNC5(instance_geometry_set_draw_range, RID, float, float, float, float)
-	FUNC2(instance_geometry_set_as_instance_lod, RID, RID)
+	FUNC6(instance_geometry_set_visibility_range, RID, float, float, float, float, VisibilityRangeFadeMode)
 	FUNC4(instance_geometry_set_lightmap, RID, RID, const Rect2 &, int)
 	FUNC2(instance_geometry_set_lod_bias, RID, float)
-
+	FUNC2(instance_geometry_set_transparency, RID, float)
 	FUNC3(instance_geometry_set_shader_parameter, RID, const StringName &, const Variant &)
 	FUNC2RC(Variant, instance_geometry_get_shader_parameter, RID, const StringName &)
 	FUNC2RC(Variant, instance_geometry_get_shader_parameter_default_value, RID, const StringName &)
 	FUNC2C(instance_geometry_get_shader_parameter_list, RID, List<PropertyInfo> *)
 
-	FUNC3R(TypedArray<Image>, bake_render_uv2, RID, const Vector<RID> &, const Size2i &)
+	FUNC3R(TypedArray<Image>, bake_render_uv2, RID, const TypedArray<RID> &, const Size2i &)
 
 	FUNC1(gi_set_use_half_resolution, bool)
 
@@ -766,6 +831,8 @@ public:
 	FUNC2(canvas_item_set_visible, RID, bool)
 	FUNC2(canvas_item_set_light_mask, RID, int)
 
+	FUNC2(canvas_item_set_visibility_layer, RID, uint32_t)
+
 	FUNC2(canvas_item_set_update_when_visible, RID, bool)
 
 	FUNC2(canvas_item_set_transform, RID, const Transform2D &)
@@ -777,13 +844,15 @@ public:
 
 	FUNC2(canvas_item_set_draw_behind_parent, RID, bool)
 
-	FUNC5(canvas_item_add_line, RID, const Point2 &, const Point2 &, const Color &, float)
+	FUNC6(canvas_item_add_line, RID, const Point2 &, const Point2 &, const Color &, float, bool)
 	FUNC5(canvas_item_add_polyline, RID, const Vector<Point2> &, const Vector<Color> &, float, bool)
 	FUNC4(canvas_item_add_multiline, RID, const Vector<Point2> &, const Vector<Color> &, float)
 	FUNC3(canvas_item_add_rect, RID, const Rect2 &, const Color &)
 	FUNC4(canvas_item_add_circle, RID, const Point2 &, float, const Color &)
 	FUNC6(canvas_item_add_texture_rect, RID, const Rect2 &, RID, bool, const Color &, bool)
 	FUNC7(canvas_item_add_texture_rect_region, RID, const Rect2 &, RID, const Rect2 &, const Color &, bool, bool)
+	FUNC7(canvas_item_add_msdf_texture_rect_region, RID, const Rect2 &, RID, const Rect2 &, const Color &, int, float)
+	FUNC5(canvas_item_add_lcd_texture_rect_region, RID, const Rect2 &, RID, const Rect2 &, const Color &)
 	FUNC10(canvas_item_add_nine_patch, RID, const Rect2 &, const Rect2 &, RID, const Vector2 &, const Vector2 &, NinePatchAxisMode, NinePatchAxisMode, bool, const Color &)
 	FUNC6(canvas_item_add_primitive, RID, const Vector<Point2> &, const Vector<Color> &, const Vector<Point2> &, RID, float)
 	FUNC5(canvas_item_add_polygon, RID, const Vector<Point2> &, const Vector<Color> &, const Vector<Point2> &, RID)
@@ -793,6 +862,8 @@ public:
 	FUNC3(canvas_item_add_particles, RID, RID, RID)
 	FUNC2(canvas_item_add_set_transform, RID, const Transform2D &)
 	FUNC2(canvas_item_add_clip_ignore, RID, bool)
+	FUNC5(canvas_item_add_animation_slice, RID, double, double, double, double)
+
 	FUNC2(canvas_item_set_sort_children_by_y, RID, bool)
 	FUNC2(canvas_item_set_z_index, RID, int)
 	FUNC2(canvas_item_set_z_as_relative_to_parent, RID, bool)
@@ -805,6 +876,8 @@ public:
 	FUNC2(canvas_item_set_material, RID, RID)
 
 	FUNC2(canvas_item_set_use_parent_material, RID, bool)
+
+	FUNC5(canvas_item_set_visibility_notifier, RID, bool, const Rect2 &, const Callable &, const Callable &)
 
 	FUNC6(canvas_item_set_canvas_group_mode, RID, CanvasGroupMode, float, bool, float, bool)
 
@@ -849,34 +922,29 @@ public:
 
 	FUNC1(canvas_set_shadow_texture_size, int)
 
-	/* GLOBAL VARIABLES */
+	/* GLOBAL SHADER UNIFORMS */
 
 #undef server_name
 #undef ServerName
 //from now on, calls forwarded to this singleton
-#define ServerName RendererStorage
-#define server_name RSG::storage
+#define ServerName RendererMaterialStorage
+#define server_name RSG::material_storage
 
-	FUNC3(global_variable_add, const StringName &, GlobalVariableType, const Variant &)
-	FUNC1(global_variable_remove, const StringName &)
-	FUNC0RC(Vector<StringName>, global_variable_get_list)
-	FUNC2(global_variable_set, const StringName &, const Variant &)
-	FUNC2(global_variable_set_override, const StringName &, const Variant &)
-	FUNC1RC(GlobalVariableType, global_variable_get_type, const StringName &)
-	FUNC1RC(Variant, global_variable_get, const StringName &)
+	FUNC3(global_shader_parameter_add, const StringName &, GlobalShaderParameterType, const Variant &)
+	FUNC1(global_shader_parameter_remove, const StringName &)
+	FUNC0RC(Vector<StringName>, global_shader_parameter_get_list)
+	FUNC2(global_shader_parameter_set, const StringName &, const Variant &)
+	FUNC2(global_shader_parameter_set_override, const StringName &, const Variant &)
+	FUNC1RC(GlobalShaderParameterType, global_shader_parameter_get_type, const StringName &)
+	FUNC1RC(Variant, global_shader_parameter_get, const StringName &)
 
-	FUNC1(global_variables_load_settings, bool)
-	FUNC0(global_variables_clear)
+	FUNC1(global_shader_parameters_load_settings, bool)
+	FUNC0(global_shader_parameters_clear)
 
 #undef server_name
 #undef ServerName
 #undef WRITE_ACTION
 #undef SYNC_DEBUG
-
-	/* BLACK BARS */
-
-	virtual void black_bars_set_margins(int p_left, int p_top, int p_right, int p_bottom) override;
-	virtual void black_bars_set_images(RID p_left, RID p_top, RID p_right, RID p_bottom) override;
 
 	/* FREE */
 
@@ -891,7 +959,7 @@ public:
 
 	/* EVENT QUEUING */
 
-	virtual void request_frame_drawn_callback(Object *p_where, const StringName &p_method, const Variant &p_userdata) override;
+	virtual void request_frame_drawn_callback(const Callable &p_callable) override;
 
 	virtual void draw(bool p_swap_buffers, double frame_step) override;
 	virtual void sync() override;
@@ -901,9 +969,11 @@ public:
 
 	/* STATUS INFORMATION */
 
-	virtual uint64_t get_render_info(RenderInfo p_info) override;
+	virtual uint64_t get_rendering_info(RenderingInfo p_info) override;
 	virtual String get_video_adapter_name() const override;
 	virtual String get_video_adapter_vendor() const override;
+	virtual RenderingDevice::DeviceType get_video_adapter_type() const override;
+	virtual String get_video_adapter_api_version() const override;
 
 	virtual void set_frame_profiling_enabled(bool p_enable) override;
 	virtual Vector<FrameProfileArea> get_frame_profile() override;
@@ -913,7 +983,7 @@ public:
 
 	/* TESTING */
 
-	virtual float get_frame_setup_time_cpu() const override;
+	virtual double get_frame_setup_time_cpu() const override;
 
 	virtual void set_boot_image(const Ref<Image> &p_image, const Color &p_color, bool p_scale, bool p_use_filter = true) override;
 	virtual void set_default_clear_color(const Color &p_color) override;
@@ -929,8 +999,10 @@ public:
 
 	virtual void set_print_gpu_profile(bool p_enable) override;
 
+	virtual Size2i get_maximum_viewport_size() const override;
+
 	RenderingServerDefault(bool p_create_thread = false);
 	~RenderingServerDefault();
 };
 
-#endif
+#endif // RENDERING_SERVER_DEFAULT_H

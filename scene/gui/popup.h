@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -35,33 +35,37 @@
 
 #include "core/templates/local_vector.h"
 
+class Panel;
+
 class Popup : public Window {
 	GDCLASS(Popup, Window);
 
 	LocalVector<Window *> visible_parents;
 	bool popped_up = false;
-	bool close_on_parent_focus = true;
+
+	struct ThemeCache {
+		Ref<StyleBox> panel_style;
+	} theme_cache;
 
 	void _input_from_window(const Ref<InputEvent> &p_event);
 
 	void _initialize_visible_parents();
 	void _deinitialize_visible_parents();
 
-	void _parent_focused();
-
 protected:
 	void _close_pressed();
 	virtual Rect2i _popup_adjust_rect() const override;
 
+	virtual void _update_theme_item_cache() override;
 	void _notification(int p_what);
 	static void _bind_methods();
+	void _validate_property(PropertyInfo &p_property) const;
+
+	virtual void _parent_focused();
+
+	virtual void _post_popup() override;
 
 public:
-	void set_as_minsize();
-
-	void set_close_on_parent_focus(bool p_close);
-	bool get_close_on_parent_focus();
-
 	Popup();
 	~Popup();
 };
@@ -69,17 +73,22 @@ public:
 class PopupPanel : public Popup {
 	GDCLASS(PopupPanel, Popup);
 
-	Panel *panel;
+	Panel *panel = nullptr;
+
+	struct ThemeCache {
+		Ref<StyleBox> panel_style;
+	} theme_cache;
 
 protected:
 	void _update_child_rects();
+
+	virtual void _update_theme_item_cache() override;
 	void _notification(int p_what);
 
 	virtual Size2 _get_contents_minimum_size() const override;
 
 public:
-	void set_child_rect(Control *p_child);
 	PopupPanel();
 };
 
-#endif
+#endif // POPUP_H

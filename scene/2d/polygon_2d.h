@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -72,10 +72,12 @@ class Polygon2D : public Node2D {
 
 	void _skeleton_bone_setup_changed();
 
+	RID mesh;
+
 protected:
 	void _notification(int p_what);
 	static void _bind_methods();
-	void _validate_property(PropertyInfo &property) const override;
+	void _validate_property(PropertyInfo &p_property) const;
 
 public:
 #ifdef TOOLS_ENABLED
@@ -118,9 +120,6 @@ public:
 	void set_texture_rotation(real_t p_rot);
 	real_t get_texture_rotation() const;
 
-	void set_texture_rotation_degrees(real_t p_rot);
-	real_t get_texture_rotation_degrees() const;
-
 	void set_texture_scale(const Size2 &p_scale);
 	Size2 get_texture_scale() const;
 
@@ -149,6 +148,7 @@ public:
 	NodePath get_skeleton() const;
 
 	Polygon2D();
+	~Polygon2D();
 };
 
 #endif // POLYGON_2D_H

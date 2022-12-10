@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -29,25 +29,25 @@
 /*************************************************************************/
 
 #include "editor_about.h"
-#include "editor_node.h"
 
 #include "core/authors.gen.h"
 #include "core/donors.gen.h"
 #include "core/license.gen.h"
 #include "core/version.h"
-#include "core/version_hash.gen.h"
+
+// The metadata key used to store and retrieve the version text to copy to the clipboard.
+static const String META_TEXT_TO_COPY = "text_to_copy";
 
 void EditorAbout::_theme_changed() {
-	Control *base = EditorNode::get_singleton()->get_gui_base();
-	Ref<Font> font = base->get_theme_font("source", "EditorFonts");
-	int font_size = base->get_theme_font_size("source_size", "EditorFonts");
+	const Ref<Font> font = get_theme_font(SNAME("source"), SNAME("EditorFonts"));
+	const int font_size = get_theme_font_size(SNAME("source_size"), SNAME("EditorFonts"));
 	_tpl_text->add_theme_font_override("normal_font", font);
 	_tpl_text->add_theme_font_size_override("normal_font_size", font_size);
-	_tpl_text->add_theme_constant_override("line_separation", 6 * EDSCALE);
+	_tpl_text->add_theme_constant_override("line_separation", 4 * EDSCALE);
 	_license_text->add_theme_font_override("normal_font", font);
 	_license_text->add_theme_font_size_override("normal_font_size", font_size);
-	_license_text->add_theme_constant_override("line_separation", 6 * EDSCALE);
-	_logo->set_texture(base->get_theme_icon("Logo", "EditorIcons"));
+	_license_text->add_theme_constant_override("line_separation", 4 * EDSCALE);
+	_logo->set_texture(get_theme_icon(SNAME("Logo"), SNAME("EditorIcons")));
 }
 
 void EditorAbout::_notification(int p_what) {
@@ -64,7 +64,12 @@ void EditorAbout::_license_tree_selected() {
 	_tpl_text->set_text(selected->get_metadata(0));
 }
 
+void EditorAbout::_version_button_pressed() {
+	DisplayServer::get_singleton()->clipboard_set(version_btn->get_meta(META_TEXT_TO_COPY));
+}
+
 void EditorAbout::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("_version_button_pressed"), &EditorAbout::_version_button_pressed);
 }
 
 TextureRect *EditorAbout::get_logo() const {
@@ -85,6 +90,7 @@ ScrollContainer *EditorAbout::_populate_list(const String &p_name, const List<St
 		const char *const *names_ptr = p_src[i];
 		if (*names_ptr) {
 			Label *lbl = memnew(Label);
+			lbl->set_theme_type_variation("HeaderSmall");
 			lbl->set_text(p_sections[i]);
 			vbc->add_child(lbl);
 
@@ -93,7 +99,7 @@ ScrollContainer *EditorAbout::_populate_list(const String &p_name, const List<St
 			il->set_same_column_width(true);
 			il->set_auto_height(true);
 			il->set_mouse_filter(Control::MOUSE_FILTER_IGNORE);
-			il->add_theme_constant_override("hseparation", 16 * EDSCALE);
+			il->add_theme_constant_override("h_separation", 16 * EDSCALE);
 			while (*names_ptr) {
 				il->add_item(String::utf8(*names_ptr++), nullptr, false);
 			}
@@ -117,29 +123,47 @@ EditorAbout::EditorAbout() {
 	vbc->connect("theme_changed", callable_mp(this, &EditorAbout::_theme_changed));
 	HBoxContainer *hbc = memnew(HBoxContainer);
 	hbc->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	hbc->set_alignment(BoxContainer::ALIGN_CENTER);
+	hbc->set_alignment(BoxContainer::ALIGNMENT_CENTER);
 	hbc->add_theme_constant_override("separation", 30 * EDSCALE);
 	add_child(vbc);
 	vbc->add_child(hbc);
 
 	_logo = memnew(TextureRect);
+	_logo->set_stretch_mode(TextureRect::STRETCH_KEEP_ASPECT_CENTERED);
 	hbc->add_child(_logo);
 
+	VBoxContainer *version_info_vbc = memnew(VBoxContainer);
+
+	// Add a dummy control node for spacing.
+	Control *v_spacer = memnew(Control);
+	version_info_vbc->add_child(v_spacer);
+
+	version_btn = memnew(LinkButton);
 	String hash = String(VERSION_HASH);
 	if (hash.length() != 0) {
-		hash = "." + hash.left(9);
+		hash = " " + vformat("[%s]", hash.left(9));
 	}
+	version_btn->set_text(VERSION_FULL_NAME + hash);
+	// Set the text to copy in metadata as it slightly differs from the button's text.
+	version_btn->set_meta(META_TEXT_TO_COPY, "v" VERSION_FULL_BUILD + hash);
+	version_btn->set_underline_mode(LinkButton::UNDERLINE_MODE_ON_HOVER);
+	version_btn->set_tooltip_text(TTR("Click to copy."));
+	version_btn->connect("pressed", callable_mp(this, &EditorAbout::_version_button_pressed));
+	version_info_vbc->add_child(version_btn);
 
 	Label *about_text = memnew(Label);
 	about_text->set_v_size_flags(Control::SIZE_SHRINK_CENTER);
-	about_text->set_text(VERSION_FULL_NAME + hash +
-						 String::utf8("\n\xc2\xa9 2007-2021 Juan Linietsky, Ariel Manzur.\n\xc2\xa9 2014-2021 ") +
-						 TTR("Godot Engine contributors") + "\n");
-	hbc->add_child(about_text);
+	about_text->set_text(String::utf8("\xc2\xa9 2007-2022 Juan Linietsky, Ariel Manzur.\n\xc2\xa9 2014-2022 ") +
+			TTR("Godot Engine contributors") + "\n");
+	version_info_vbc->add_child(about_text);
+
+	hbc->add_child(version_info_vbc);
 
 	TabContainer *tc = memnew(TabContainer);
-	tc->set_custom_minimum_size(Size2(950, 400) * EDSCALE);
+	tc->set_tab_alignment(TabBar::ALIGNMENT_CENTER);
+	tc->set_custom_minimum_size(Size2(400, 200) * EDSCALE);
 	tc->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+	tc->set_theme_type_variation("TabContainerOdd");
 	vbc->add_child(tc);
 
 	// Authors
@@ -148,9 +172,7 @@ EditorAbout::EditorAbout() {
 	dev_sections.push_back(TTR("Project Founders"));
 	dev_sections.push_back(TTR("Lead Developer"));
 	// TRANSLATORS: This refers to a job title.
-	// The trailing space is used to distinguish with the project list application,
-	// you do not have to keep it in your translation.
-	dev_sections.push_back(TTR("Project Manager "));
+	dev_sections.push_back(TTR("Project Manager", "Job Title"));
 	dev_sections.push_back(TTR("Developers"));
 	const char *const *dev_src[] = { AUTHORS_FOUNDERS, AUTHORS_LEAD_DEVELOPERS,
 		AUTHORS_PROJECT_MANAGERS, AUTHORS_DEVELOPERS };
@@ -175,6 +197,7 @@ EditorAbout::EditorAbout() {
 	// License
 
 	_license_text = memnew(RichTextLabel);
+	_license_text->set_threaded(true);
 	_license_text->set_name(TTR("License"));
 	_license_text->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	_license_text->set_v_size_flags(Control::SIZE_EXPAND_FILL);
@@ -190,7 +213,7 @@ EditorAbout::EditorAbout() {
 
 	Label *tpl_label = memnew(Label);
 	tpl_label->set_h_size_flags(Control::SIZE_EXPAND_FILL);
-	tpl_label->set_autowrap(true);
+	tpl_label->set_autowrap_mode(TextServer::AUTOWRAP_WORD_SMART);
 	tpl_label->set_text(TTR("Godot Engine relies on a number of third-party free and open source libraries, all compatible with the terms of its MIT license. The following is an exhaustive list of all such third-party components with their respective copyright statements and license terms."));
 	tpl_label->set_size(Size2(630, 1) * EDSCALE);
 	license_thirdparty->add_child(tpl_label);
@@ -251,6 +274,7 @@ EditorAbout::EditorAbout() {
 	tpl_hbc->add_child(_tpl_tree);
 
 	_tpl_text = memnew(RichTextLabel);
+	_tpl_text->set_threaded(true);
 	_tpl_text->set_h_size_flags(Control::SIZE_EXPAND_FILL);
 	_tpl_text->set_v_size_flags(Control::SIZE_EXPAND_FILL);
 	tpl_hbc->add_child(_tpl_text);

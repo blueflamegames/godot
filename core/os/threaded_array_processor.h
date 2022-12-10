@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,7 +31,6 @@
 #ifndef THREADED_ARRAY_PROCESSOR_H
 #define THREADED_ARRAY_PROCESSOR_H
 
-#include "core/os/mutex.h"
 #include "core/os/os.h"
 #include "core/os/thread.h"
 #include "core/os/thread_safe.h"
@@ -49,8 +48,6 @@ struct ThreadArrayProcessData {
 		(instance->*method)(p_index, userdata);
 	}
 };
-
-#ifndef NO_THREADS
 
 template <class T>
 void process_array_thread(void *ud) {
@@ -86,22 +83,5 @@ void thread_process_array(uint32_t p_elements, C *p_instance, M p_method, U p_us
 	}
 	memdelete_arr(threads);
 }
-
-#else
-
-template <class C, class M, class U>
-void thread_process_array(uint32_t p_elements, C *p_instance, M p_method, U p_userdata) {
-	ThreadArrayProcessData<C, U> data;
-	data.method = p_method;
-	data.instance = p_instance;
-	data.userdata = p_userdata;
-	data.index.set(0);
-	data.elements = p_elements;
-	for (uint32_t i = 0; i < p_elements; i++) {
-		data.process(i);
-	}
-}
-
-#endif
 
 #endif // THREADED_ARRAY_PROCESSOR_H

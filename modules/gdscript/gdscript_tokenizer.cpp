@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -67,6 +67,7 @@ static const char *token_names[] = {
 	"+", // PLUS,
 	"-", // MINUS,
 	"*", // STAR,
+	"**", // STAR_STAR,
 	"/", // SLASH,
 	"%", // PERCENT,
 	// Assignment
@@ -74,6 +75,7 @@ static const char *token_names[] = {
 	"+=", // PLUS_EQUAL,
 	"-=", // MINUS_EQUAL,
 	"*=", // STAR_EQUAL,
+	"**=", // STAR_STAR_EQUAL,
 	"/=", // SLASH_EQUAL,
 	"%=", // PERCENT_EQUAL,
 	"<<=", // LESS_LESS_EQUAL,
@@ -242,6 +244,16 @@ void GDScriptTokenizer::set_multiline_mode(bool p_state) {
 	multiline_mode = p_state;
 }
 
+void GDScriptTokenizer::push_expression_indented_block() {
+	indent_stack_stack.push_back(indent_stack);
+}
+
+void GDScriptTokenizer::pop_expression_indented_block() {
+	ERR_FAIL_COND(indent_stack_stack.size() == 0);
+	indent_stack = indent_stack_stack.back()->get();
+	indent_stack_stack.pop_back();
+}
+
 int GDScriptTokenizer::get_cursor_line() const {
 	return cursor_line;
 }
@@ -300,22 +312,6 @@ GDScriptTokenizer::Token GDScriptTokenizer::pop_error() {
 	Token error = error_stack.back()->get();
 	error_stack.pop_back();
 	return error;
-}
-
-static bool _is_alphanumeric(char32_t c) {
-	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
-}
-
-static bool _is_digit(char32_t c) {
-	return (c >= '0' && c <= '9');
-}
-
-static bool _is_hex_digit(char32_t c) {
-	return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
-}
-
-static bool _is_binary_digit(char32_t c) {
-	return (c == '0' || c == '1');
 }
 
 GDScriptTokenizer::Token GDScriptTokenizer::make_token(Token::Type p_type) {
@@ -438,10 +434,10 @@ GDScriptTokenizer::Token GDScriptTokenizer::check_vcs_marker(char32_t p_test, To
 }
 
 GDScriptTokenizer::Token GDScriptTokenizer::annotation() {
-	if (!_is_alphanumeric(_peek())) {
+	if (!is_ascii_identifier_char(_peek())) {
 		push_error("Expected annotation identifier after \"@\".");
 	}
-	while (_is_alphanumeric(_peek())) {
+	while (is_ascii_identifier_char(_peek())) {
 		// Consume all identifier characters.
 		_advance();
 	}
@@ -516,19 +512,19 @@ GDScriptTokenizer::Token GDScriptTokenizer::potential_identifier() {
 #define MAX_KEYWORD_LENGTH 10
 
 	// Consume all alphanumeric characters.
-	while (_is_alphanumeric(_peek())) {
+	while (is_ascii_identifier_char(_peek())) {
 		_advance();
 	}
 
-	int length = _current - _start;
+	int len = _current - _start;
 
-	if (length == 1 && _peek(-1) == '_') {
+	if (len == 1 && _peek(-1) == '_') {
 		// Lone underscore.
 		return make_token(Token::UNDERSCORE);
 	}
 
-	String name(_start, length);
-	if (length < MIN_KEYWORD_LENGTH || length > MAX_KEYWORD_LENGTH) {
+	String name(_start, len);
+	if (len < MIN_KEYWORD_LENGTH || len > MAX_KEYWORD_LENGTH) {
 		// Cannot be a keyword, as the length doesn't match any.
 		return make_identifier(name);
 	}
@@ -542,7 +538,7 @@ GDScriptTokenizer::Token GDScriptTokenizer::potential_identifier() {
 		const int keyword_length = sizeof(keyword) - 1;                                                                   \
 		static_assert(keyword_length <= MAX_KEYWORD_LENGTH, "There's a keyword longer than the defined maximum length");  \
 		static_assert(keyword_length >= MIN_KEYWORD_LENGTH, "There's a keyword shorter than the defined minimum length"); \
-		if (keyword_length == length && name == keyword) {                                                                \
+		if (keyword_length == len && name == keyword) {                                                                   \
 			return make_token(token_type);                                                                                \
 		}                                                                                                                 \
 	}
@@ -555,13 +551,13 @@ GDScriptTokenizer::Token GDScriptTokenizer::potential_identifier() {
 	}
 
 	// Check if it's a special literal
-	if (length == 4) {
+	if (len == 4) {
 		if (name == "true") {
 			return make_literal(true);
 		} else if (name == "null") {
 			return make_literal(Variant());
 		}
-	} else if (length == 5) {
+	} else if (len == 5) {
 		if (name == "false") {
 			return make_literal(false);
 		}
@@ -602,7 +598,7 @@ GDScriptTokenizer::Token GDScriptTokenizer::number() {
 	bool has_decimal = false;
 	bool has_exponent = false;
 	bool has_error = false;
-	bool (*digit_check_func)(char32_t) = _is_digit;
+	bool (*digit_check_func)(char32_t) = is_digit;
 
 	if (_peek(-1) == '.') {
 		has_decimal = true;
@@ -610,20 +606,20 @@ GDScriptTokenizer::Token GDScriptTokenizer::number() {
 		if (_peek() == 'x') {
 			// Hexadecimal.
 			base = 16;
-			digit_check_func = _is_hex_digit;
+			digit_check_func = is_hex_digit;
 			_advance();
 		} else if (_peek() == 'b') {
 			// Binary.
 			base = 2;
-			digit_check_func = _is_binary_digit;
+			digit_check_func = is_binary_digit;
 			_advance();
 		}
 	}
 
 	// Allow '_' to be used in a number, for readability.
 	bool previous_was_underscore = false;
-	while (digit_check_func(_peek()) || _peek() == '_') {
-		if (_peek() == '_') {
+	while (digit_check_func(_peek()) || is_underscore(_peek())) {
+		if (is_underscore(_peek())) {
 			if (previous_was_underscore) {
 				Token error = make_error(R"(Only one underscore can be used as a numeric separator.)");
 				error.start_column = column;
@@ -633,6 +629,8 @@ GDScriptTokenizer::Token GDScriptTokenizer::number() {
 				push_error(error);
 			}
 			previous_was_underscore = true;
+		} else {
+			previous_was_underscore = false;
 		}
 		_advance();
 	}
@@ -670,7 +668,7 @@ GDScriptTokenizer::Token GDScriptTokenizer::number() {
 			_advance();
 
 			// Consume decimal digits.
-			while (_is_digit(_peek()) || _peek() == '_') {
+			while (is_digit(_peek()) || is_underscore(_peek())) {
 				_advance();
 			}
 		}
@@ -684,7 +682,7 @@ GDScriptTokenizer::Token GDScriptTokenizer::number() {
 				_advance();
 			}
 			// Consume exponent digits.
-			if (!_is_digit(_peek())) {
+			if (!is_digit(_peek())) {
 				Token error = make_error(R"(Expected exponent value after "e".)");
 				error.start_column = column;
 				error.leftmost_column = column;
@@ -693,8 +691,8 @@ GDScriptTokenizer::Token GDScriptTokenizer::number() {
 				push_error(error);
 			}
 			previous_was_underscore = false;
-			while (_is_digit(_peek()) || _peek() == '_') {
-				if (_peek() == '_') {
+			while (is_digit(_peek()) || is_underscore(_peek())) {
+				if (is_underscore(_peek())) {
 					if (previous_was_underscore) {
 						Token error = make_error(R"(Only one underscore can be used as a numeric separator.)");
 						error.start_column = column;
@@ -704,6 +702,8 @@ GDScriptTokenizer::Token GDScriptTokenizer::number() {
 						push_error(error);
 					}
 					previous_was_underscore = true;
+				} else {
+					previous_was_underscore = false;
 				}
 				_advance();
 			}
@@ -719,14 +719,14 @@ GDScriptTokenizer::Token GDScriptTokenizer::number() {
 		error.rightmost_column = column + 1;
 		push_error(error);
 		has_error = true;
-	} else if (_is_alphanumeric(_peek())) {
+	} else if (is_ascii_identifier_char(_peek())) {
 		// Letter at the end of the number.
 		push_error("Invalid numeric notation.");
 	}
 
 	// Create a string with the whole number.
-	int length = _current - _start;
-	String number = String(_start, length).replace("_", "");
+	int len = _current - _start;
+	String number = String(_start, len).replace("_", "");
 
 	// Convert to the appropriate literal type.
 	if (base == 16) {
@@ -772,6 +772,8 @@ GDScriptTokenizer::Token GDScriptTokenizer::string() {
 	}
 
 	String result;
+	char32_t prev = 0;
+	int prev_pos = 0;
 
 	for (;;) {
 		// Consume actual string.
@@ -780,6 +782,15 @@ GDScriptTokenizer::Token GDScriptTokenizer::string() {
 		}
 
 		char32_t ch = _peek();
+
+		if (ch == 0x200E || ch == 0x200F || (ch >= 0x202A && ch <= 0x202E) || (ch >= 0x2066 && ch <= 0x2069)) {
+			Token error = make_error("Invisible text direction control character present in the string, escape it (\"\\u" + String::num_int64(ch, 16) + "\") to avoid confusion.");
+			error.start_column = column;
+			error.leftmost_column = error.start_column;
+			error.end_column = column + 1;
+			error.rightmost_column = error.end_column;
+			push_error(error);
+		}
 
 		if (ch == '\\') {
 			// Escape pattern.
@@ -829,16 +840,18 @@ GDScriptTokenizer::Token GDScriptTokenizer::string() {
 				case '\\':
 					escaped = '\\';
 					break;
-				case 'u':
+				case 'U':
+				case 'u': {
 					// Hexadecimal sequence.
-					for (int i = 0; i < 4; i++) {
+					int hex_len = (code == 'U') ? 6 : 4;
+					for (int j = 0; j < hex_len; j++) {
 						if (_is_at_end()) {
 							return make_error("Unterminated string.");
 						}
 
 						char32_t digit = _peek();
 						char32_t value = 0;
-						if (digit >= '0' && digit <= '9') {
+						if (is_digit(digit)) {
 							value = digit - '0';
 						} else if (digit >= 'a' && digit <= 'f') {
 							value = digit - 'a';
@@ -863,7 +876,7 @@ GDScriptTokenizer::Token GDScriptTokenizer::string() {
 
 						_advance();
 					}
-					break;
+				} break;
 				case '\r':
 					if (_peek() != '\n') {
 						// Carriage return without newline in string. (???)
@@ -886,11 +899,53 @@ GDScriptTokenizer::Token GDScriptTokenizer::string() {
 					valid_escape = false;
 					break;
 			}
+			// Parse UTF-16 pair.
+			if (valid_escape) {
+				if ((escaped & 0xfffffc00) == 0xd800) {
+					if (prev == 0) {
+						prev = escaped;
+						prev_pos = column - 2;
+						continue;
+					} else {
+						Token error = make_error("Invalid UTF-16 sequence in string, unpaired lead surrogate");
+						error.start_column = column - 2;
+						error.leftmost_column = error.start_column;
+						push_error(error);
+						valid_escape = false;
+						prev = 0;
+					}
+				} else if ((escaped & 0xfffffc00) == 0xdc00) {
+					if (prev == 0) {
+						Token error = make_error("Invalid UTF-16 sequence in string, unpaired trail surrogate");
+						error.start_column = column - 2;
+						error.leftmost_column = error.start_column;
+						push_error(error);
+						valid_escape = false;
+					} else {
+						escaped = (prev << 10UL) + escaped - ((0xd800 << 10UL) + 0xdc00 - 0x10000);
+						prev = 0;
+					}
+				}
+				if (prev != 0) {
+					Token error = make_error("Invalid UTF-16 sequence in string, unpaired lead surrogate");
+					error.start_column = prev_pos;
+					error.leftmost_column = error.start_column;
+					push_error(error);
+					prev = 0;
+				}
+			}
 
 			if (valid_escape) {
 				result += escaped;
 			}
 		} else if (ch == quote_char) {
+			if (prev != 0) {
+				Token error = make_error("Invalid UTF-16 sequence in string, unpaired lead surrogate");
+				error.start_column = prev_pos;
+				error.leftmost_column = error.start_column;
+				push_error(error);
+				prev = 0;
+			}
 			_advance();
 			if (is_multiline) {
 				if (_peek() == quote_char && _peek(1) == quote_char) {
@@ -907,12 +962,26 @@ GDScriptTokenizer::Token GDScriptTokenizer::string() {
 				break;
 			}
 		} else {
+			if (prev != 0) {
+				Token error = make_error("Invalid UTF-16 sequence in string, unpaired lead surrogate");
+				error.start_column = prev_pos;
+				error.leftmost_column = error.start_column;
+				push_error(error);
+				prev = 0;
+			}
 			result += ch;
 			_advance();
 			if (ch == '\n') {
 				newline(false);
 			}
 		}
+	}
+	if (prev != 0) {
+		Token error = make_error("Invalid UTF-16 sequence in string, unpaired lead surrogate");
+		error.start_column = prev_pos;
+		error.leftmost_column = error.start_column;
+		push_error(error);
+		prev = 0;
 	}
 
 	// Make the literal.
@@ -1050,7 +1119,8 @@ void GDScriptTokenizer::check_indent() {
 			// First time indenting, choose character now.
 			indent_char = current_indent_char;
 		} else if (current_indent_char != indent_char) {
-			Token error = make_error(vformat("Used \"%s\" for indentation instead \"%s\" as used before in the file.", String(&current_indent_char, 1).c_escape(), String(&indent_char, 1).c_escape()));
+			Token error = make_error(vformat("Used %s character for indentation instead of %s as used before in the file.",
+					_get_indent_char_name(current_indent_char), _get_indent_char_name(indent_char)));
 			error.start_line = line;
 			error.start_column = 1;
 			error.leftmost_column = 1;
@@ -1098,6 +1168,12 @@ void GDScriptTokenizer::check_indent() {
 		}
 		break; // Get out of the loop in any case.
 	}
+}
+
+String GDScriptTokenizer::_get_indent_char_name(char32_t ch) {
+	ERR_FAIL_COND_V(ch != ' ' && ch != '\t', String(&ch, 1).c_escape());
+
+	return ch == ' ' ? "space" : "tab";
 }
 
 void GDScriptTokenizer::_skip_whitespace() {
@@ -1232,9 +1308,9 @@ GDScriptTokenizer::Token GDScriptTokenizer::scan() {
 
 	line_continuation = false;
 
-	if (_is_digit(c)) {
+	if (is_digit(c)) {
 		return number();
-	} else if (_is_alphanumeric(c)) {
+	} else if (is_ascii_identifier_char(c)) {
 		return potential_identifier();
 	}
 
@@ -1302,7 +1378,7 @@ GDScriptTokenizer::Token GDScriptTokenizer::scan() {
 			if (_peek() == '.') {
 				_advance();
 				return make_token(Token::PERIOD_PERIOD);
-			} else if (_is_digit(_peek())) {
+			} else if (is_digit(_peek())) {
 				// Number starting with '.'.
 				return number();
 			} else {
@@ -1329,6 +1405,14 @@ GDScriptTokenizer::Token GDScriptTokenizer::scan() {
 			if (_peek() == '=') {
 				_advance();
 				return make_token(Token::STAR_EQUAL);
+			} else if (_peek() == '*') {
+				if (_peek(1) == '=') {
+					_advance();
+					_advance(); // Advance both '*' and '='
+					return make_token(Token::STAR_STAR_EQUAL);
+				}
+				_advance();
+				return make_token(Token::STAR_STAR);
 			} else {
 				return make_token(Token::STAR);
 			}
@@ -1419,14 +1503,14 @@ GDScriptTokenizer::Token GDScriptTokenizer::scan() {
 			}
 
 		default:
-			return make_error(vformat(R"(Unknown character "%s".")", String(&c, 1)));
+			return make_error(vformat(R"(Unknown character "%s".)", String(&c, 1)));
 	}
 }
 
 GDScriptTokenizer::GDScriptTokenizer() {
 #ifdef TOOLS_ENABLED
 	if (EditorSettings::get_singleton()) {
-		tab_size = EditorSettings::get_singleton()->get_setting("text_editor/indent/size");
+		tab_size = EditorSettings::get_singleton()->get_setting("text_editor/behavior/indent/size");
 	}
 #endif // TOOLS_ENABLED
 }

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,9 +31,14 @@
 #ifndef PAGED_ALLOCATOR_H
 #define PAGED_ALLOCATOR_H
 
+#include "core/core_globals.h"
 #include "core/os/memory.h"
 #include "core/os/spin_lock.h"
+#include "core/string/ustring.h"
 #include "core/typedefs.h"
+
+#include <type_traits>
+#include <typeinfo>
 
 template <class T, bool thread_safe = false>
 class PagedAllocator {
@@ -48,7 +53,12 @@ class PagedAllocator {
 	SpinLock spin_lock;
 
 public:
-	T *alloc() {
+	enum {
+		DEFAULT_PAGE_SIZE = 4096
+	};
+
+	template <class... Args>
+	T *alloc(const Args &&...p_args) {
 		if (thread_safe) {
 			spin_lock.lock();
 		}
@@ -73,7 +83,7 @@ public:
 		if (thread_safe) {
 			spin_lock.unlock();
 		}
-		memnew_placement(alloc, T);
+		memnew_placement(alloc, T(p_args...));
 		return alloc;
 	}
 
@@ -83,14 +93,16 @@ public:
 		}
 		p_mem->~T();
 		available_pool[allocs_available >> page_shift][allocs_available & page_mask] = p_mem;
+		allocs_available++;
 		if (thread_safe) {
 			spin_lock.unlock();
 		}
-		allocs_available++;
 	}
 
-	void reset() {
-		ERR_FAIL_COND(allocs_available < pages_allocated * page_size);
+	void reset(bool p_allow_unfreed = false) {
+		if (!p_allow_unfreed || !std::is_trivially_destructible<T>::value) {
+			ERR_FAIL_COND(allocs_available < pages_allocated * page_size);
+		}
 		if (pages_allocated) {
 			for (uint32_t i = 0; i < pages_allocated; i++) {
 				memfree(page_pool[i]);
@@ -116,12 +128,19 @@ public:
 		page_shift = get_shift_from_power_of_2(page_size);
 	}
 
-	PagedAllocator(uint32_t p_page_size = 4096) { // power of 2 recommended because of alignment with OS page sizes. Even if element is bigger, its still a multiple and get rounded amount of pages
+	// Power of 2 recommended because of alignment with OS page sizes.
+	// Even if element is bigger, it's still a multiple and gets rounded to amount of pages.
+	PagedAllocator(uint32_t p_page_size = DEFAULT_PAGE_SIZE) {
 		configure(p_page_size);
 	}
 
 	~PagedAllocator() {
-		ERR_FAIL_COND_MSG(allocs_available < pages_allocated * page_size, "Pages in use exist at exit in PagedAllocator");
+		if (allocs_available < pages_allocated * page_size) {
+			if (CoreGlobals::leak_reporting_enabled) {
+				ERR_FAIL_COND_MSG(allocs_available < pages_allocated * page_size, String("Pages in use exist at exit in PagedAllocator: ") + String(typeid(T).name()));
+			}
+			return;
+		}
 		reset();
 	}
 };

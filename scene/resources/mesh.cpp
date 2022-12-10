@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,46 +30,144 @@
 
 #include "mesh.h"
 
+#include "core/math/convex_hull.h"
 #include "core/templates/pair.h"
+#include "scene/resources/surface_tool.h"
+
 #include "scene/resources/concave_polygon_shape_3d.h"
 #include "scene/resources/convex_polygon_shape_3d.h"
-#include "surface_tool.h"
 
-#include <stdlib.h>
+Mesh::ConvexDecompositionFunc Mesh::convex_decomposition_function = nullptr;
 
-Mesh::ConvexDecompositionFunc Mesh::convex_composition_function = nullptr;
+int Mesh::get_surface_count() const {
+	int ret = 0;
+	GDVIRTUAL_REQUIRED_CALL(_get_surface_count, ret);
+	return ret;
+}
+
+int Mesh::surface_get_array_len(int p_idx) const {
+	int ret = 0;
+	GDVIRTUAL_REQUIRED_CALL(_surface_get_array_len, p_idx, ret);
+	return ret;
+}
+
+int Mesh::surface_get_array_index_len(int p_idx) const {
+	int ret = 0;
+	GDVIRTUAL_REQUIRED_CALL(_surface_get_array_index_len, p_idx, ret);
+	return ret;
+}
+
+Array Mesh::surface_get_arrays(int p_surface) const {
+	Array ret;
+	GDVIRTUAL_REQUIRED_CALL(_surface_get_arrays, p_surface, ret);
+	return ret;
+}
+
+TypedArray<Array> Mesh::surface_get_blend_shape_arrays(int p_surface) const {
+	TypedArray<Array> ret;
+	GDVIRTUAL_REQUIRED_CALL(_surface_get_blend_shape_arrays, p_surface, ret);
+	return ret;
+}
+
+Dictionary Mesh::surface_get_lods(int p_surface) const {
+	Dictionary ret;
+	GDVIRTUAL_REQUIRED_CALL(_surface_get_lods, p_surface, ret);
+	return ret;
+}
+
+uint32_t Mesh::surface_get_format(int p_idx) const {
+	uint32_t ret = 0;
+	GDVIRTUAL_REQUIRED_CALL(_surface_get_format, p_idx, ret);
+	return ret;
+}
+
+Mesh::PrimitiveType Mesh::surface_get_primitive_type(int p_idx) const {
+	uint32_t ret = PRIMITIVE_MAX;
+	GDVIRTUAL_REQUIRED_CALL(_surface_get_primitive_type, p_idx, ret);
+	return (Mesh::PrimitiveType)ret;
+}
+
+void Mesh::surface_set_material(int p_idx, const Ref<Material> &p_material) {
+	GDVIRTUAL_REQUIRED_CALL(_surface_set_material, p_idx, p_material);
+}
+
+Ref<Material> Mesh::surface_get_material(int p_idx) const {
+	Ref<Material> ret;
+	GDVIRTUAL_REQUIRED_CALL(_surface_get_material, p_idx, ret);
+	return ret;
+}
+
+int Mesh::get_blend_shape_count() const {
+	int ret = 0;
+	GDVIRTUAL_REQUIRED_CALL(_get_blend_shape_count, ret);
+	return ret;
+}
+
+StringName Mesh::get_blend_shape_name(int p_index) const {
+	StringName ret;
+	GDVIRTUAL_REQUIRED_CALL(_get_blend_shape_name, p_index, ret);
+	return ret;
+}
+
+void Mesh::set_blend_shape_name(int p_index, const StringName &p_name) {
+	GDVIRTUAL_REQUIRED_CALL(_set_blend_shape_name, p_index, p_name);
+}
+
+AABB Mesh::get_aabb() const {
+	AABB ret;
+	GDVIRTUAL_REQUIRED_CALL(_get_aabb, ret);
+	return ret;
+}
 
 Ref<TriangleMesh> Mesh::generate_triangle_mesh() const {
 	if (triangle_mesh.is_valid()) {
 		return triangle_mesh;
 	}
 
-	int facecount = 0;
+	int faces_size = 0;
 
 	for (int i = 0; i < get_surface_count(); i++) {
-		if (surface_get_primitive_type(i) != PRIMITIVE_TRIANGLES) {
-			continue;
-		}
-
-		if (surface_get_format(i) & ARRAY_FORMAT_INDEX) {
-			facecount += surface_get_array_index_len(i);
-		} else {
-			facecount += surface_get_array_len(i);
+		switch (surface_get_primitive_type(i)) {
+			case PRIMITIVE_TRIANGLES: {
+				int len = (surface_get_format(i) & ARRAY_FORMAT_INDEX) ? surface_get_array_index_len(i) : surface_get_array_len(i);
+				// Don't error if zero, it's valid (we'll just skip it later).
+				ERR_CONTINUE_MSG((len % 3) != 0, vformat("Ignoring surface %d, incorrect %s count: %d (for PRIMITIVE_TRIANGLES).", i, (surface_get_format(i) & ARRAY_FORMAT_INDEX) ? "index" : "vertex", len));
+				faces_size += len;
+			} break;
+			case PRIMITIVE_TRIANGLE_STRIP: {
+				int len = (surface_get_format(i) & ARRAY_FORMAT_INDEX) ? surface_get_array_index_len(i) : surface_get_array_len(i);
+				// Don't error if zero, it's valid (we'll just skip it later).
+				ERR_CONTINUE_MSG(len != 0 && len < 3, vformat("Ignoring surface %d, incorrect %s count: %d (for PRIMITIVE_TRIANGLE_STRIP).", i, (surface_get_format(i) & ARRAY_FORMAT_INDEX) ? "index" : "vertex", len));
+				faces_size += (len == 0) ? 0 : (len - 2) * 3;
+			} break;
+			default: {
+			} break;
 		}
 	}
 
-	if (facecount == 0 || (facecount % 3) != 0) {
+	if (faces_size == 0) {
 		return triangle_mesh;
 	}
 
 	Vector<Vector3> faces;
-	faces.resize(facecount);
+	faces.resize(faces_size);
+	Vector<int32_t> surface_indices;
+	surface_indices.resize(faces_size / 3);
 	Vector3 *facesw = faces.ptrw();
+	int32_t *surface_indicesw = surface_indices.ptrw();
 
 	int widx = 0;
 
 	for (int i = 0; i < get_surface_count(); i++) {
-		if (surface_get_primitive_type(i) != PRIMITIVE_TRIANGLES) {
+		Mesh::PrimitiveType primitive = surface_get_primitive_type(i);
+		if (primitive != PRIMITIVE_TRIANGLES && primitive != PRIMITIVE_TRIANGLE_STRIP) {
+			continue;
+		}
+		int len = (surface_get_format(i) & ARRAY_FORMAT_INDEX) ? surface_get_array_index_len(i) : surface_get_array_len(i);
+		if ((primitive == PRIMITIVE_TRIANGLES && (len == 0 || (len % 3) != 0)) ||
+				(primitive == PRIMITIVE_TRIANGLE_STRIP && len < 3) ||
+				(surface_get_format(i) & ARRAY_FLAG_USES_EMPTY_VERTEX_ARRAY)) {
+			// Error was already shown, just skip (including zero).
 			continue;
 		}
 
@@ -78,22 +176,47 @@ Ref<TriangleMesh> Mesh::generate_triangle_mesh() const {
 
 		int vc = surface_get_array_len(i);
 		Vector<Vector3> vertices = a[ARRAY_VERTEX];
+		ERR_FAIL_COND_V(vertices.is_empty(), Ref<TriangleMesh>());
 		const Vector3 *vr = vertices.ptr();
+
+		int32_t from_index = widx / 3;
 
 		if (surface_get_format(i) & ARRAY_FORMAT_INDEX) {
 			int ic = surface_get_array_index_len(i);
 			Vector<int> indices = a[ARRAY_INDEX];
 			const int *ir = indices.ptr();
 
-			for (int j = 0; j < ic; j++) {
-				int index = ir[j];
-				facesw[widx++] = vr[index];
+			if (primitive == PRIMITIVE_TRIANGLES) {
+				for (int j = 0; j < ic; j++) {
+					int index = ir[j];
+					facesw[widx++] = vr[index];
+				}
+			} else { // PRIMITIVE_TRIANGLE_STRIP
+				for (int j = 2; j < ic; j++) {
+					facesw[widx++] = vr[ir[j - 2]];
+					facesw[widx++] = vr[ir[j - 1]];
+					facesw[widx++] = vr[ir[j]];
+				}
 			}
 
 		} else {
-			for (int j = 0; j < vc; j++) {
-				facesw[widx++] = vr[j];
+			if (primitive == PRIMITIVE_TRIANGLES) {
+				for (int j = 0; j < vc; j++) {
+					facesw[widx++] = vr[j];
+				}
+			} else { // PRIMITIVE_TRIANGLE_STRIP
+				for (int j = 2; j < vc; j++) {
+					facesw[widx++] = vr[j - 2];
+					facesw[widx++] = vr[j - 1];
+					facesw[widx++] = vr[j];
+				}
 			}
+		}
+
+		int32_t to_index = widx / 3;
+
+		for (int j = from_index; j < to_index; j++) {
+			surface_indicesw[j] = i;
 		}
 	}
 
@@ -101,6 +224,64 @@ Ref<TriangleMesh> Mesh::generate_triangle_mesh() const {
 	triangle_mesh->create(faces);
 
 	return triangle_mesh;
+}
+
+Ref<TriangleMesh> Mesh::generate_surface_triangle_mesh(int p_surface) const {
+	ERR_FAIL_INDEX_V(p_surface, get_surface_count(), Ref<TriangleMesh>());
+
+	if (surface_triangle_meshes.size() != get_surface_count()) {
+		surface_triangle_meshes.resize(get_surface_count());
+	}
+
+	if (surface_triangle_meshes[p_surface].is_valid()) {
+		return surface_triangle_meshes[p_surface];
+	}
+
+	int facecount = 0;
+
+	if (surface_get_primitive_type(p_surface) != PRIMITIVE_TRIANGLES) {
+		return Ref<TriangleMesh>();
+	}
+
+	if (surface_get_format(p_surface) & ARRAY_FORMAT_INDEX) {
+		facecount += surface_get_array_index_len(p_surface);
+	} else {
+		facecount += surface_get_array_len(p_surface);
+	}
+
+	Vector<Vector3> faces;
+	faces.resize(facecount);
+	Vector3 *facesw = faces.ptrw();
+
+	Array a = surface_get_arrays(p_surface);
+	ERR_FAIL_COND_V(a.is_empty(), Ref<TriangleMesh>());
+
+	int vc = surface_get_array_len(p_surface);
+	Vector<Vector3> vertices = a[ARRAY_VERTEX];
+	const Vector3 *vr = vertices.ptr();
+	int widx = 0;
+
+	if (surface_get_format(p_surface) & ARRAY_FORMAT_INDEX) {
+		int ic = surface_get_array_index_len(p_surface);
+		Vector<int> indices = a[ARRAY_INDEX];
+		const int *ir = indices.ptr();
+
+		for (int j = 0; j < ic; j++) {
+			int index = ir[j];
+			facesw[widx++] = vr[index];
+		}
+
+	} else {
+		for (int j = 0; j < vc; j++) {
+			facesw[widx++] = vr[j];
+		}
+	}
+
+	Ref<TriangleMesh> tr_mesh = Ref<TriangleMesh>(memnew(TriangleMesh));
+	tr_mesh->create(faces);
+	surface_triangle_meshes.set(p_surface, tr_mesh);
+
+	return tr_mesh;
 }
 
 void Mesh::generate_debug_mesh_lines(Vector<Vector3> &r_lines) {
@@ -155,75 +336,35 @@ void Mesh::generate_debug_mesh_indices(Vector<Vector3> &r_points) {
 	}
 }
 
-bool Mesh::surface_is_softbody_friendly(int p_idx) const {
-	const uint32_t surface_format = surface_get_format(p_idx);
-	return (surface_format & Mesh::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
-}
-
 Vector<Face3> Mesh::get_faces() const {
 	Ref<TriangleMesh> tm = generate_triangle_mesh();
 	if (tm.is_valid()) {
 		return tm->get_faces();
 	}
 	return Vector<Face3>();
-	/*
-	for (int i=0;i<surfaces.size();i++) {
-		if (RenderingServer::get_singleton()->mesh_surface_get_primitive_type( mesh, i ) != RenderingServer::PRIMITIVE_TRIANGLES )
-			continue;
-
-		Vector<int> indices;
-		Vector<Vector3> vertices;
-
-		vertices=RenderingServer::get_singleton()->mesh_surface_get_array(mesh, i,RenderingServer::ARRAY_VERTEX);
-
-		int len=RenderingServer::get_singleton()->mesh_surface_get_array_index_len(mesh, i);
-		bool has_indices;
-
-		if (len>0) {
-			indices=RenderingServer::get_singleton()->mesh_surface_get_array(mesh, i,RenderingServer::ARRAY_INDEX);
-			has_indices=true;
-
-		} else {
-			len=vertices.size();
-			has_indices=false;
-		}
-
-		if (len<=0)
-			continue;
-
-		const int* indicesr = indices.ptr();
-		const int *indicesptr = indicesr.ptr();
-
-		const Vector3* verticesr = vertices.ptr();
-		const Vector3 *verticesptr = verticesr.ptr();
-
-		int old_faces=faces.size();
-		int new_faces=old_faces+(len/3);
-
-		faces.resize(new_faces);
-
-		Face3* facesw = faces.ptrw();
-		Face3 *facesptr=facesw.ptr();
-
-
-		for (int i=0;i<len/3;i++) {
-			Face3 face;
-
-			for (int j=0;j<3;j++) {
-				int idx=i*3+j;
-				face.vertex[j] = has_indices ? verticesptr[ indicesptr[ idx ] ] : verticesptr[idx];
-			}
-
-			facesptr[i+old_faces]=face;
-		}
-
-	}
-*/
 }
 
-Ref<Shape3D> Mesh::create_convex_shape() const {
-	Vector<Vector3> vertices;
+Vector<Face3> Mesh::get_surface_faces(int p_surface) const {
+	Ref<TriangleMesh> tm = generate_surface_triangle_mesh(p_surface);
+	if (tm.is_valid()) {
+		return tm->get_faces();
+	}
+	return Vector<Face3>();
+}
 
+Ref<ConvexPolygonShape3D> Mesh::create_convex_shape(bool p_clean, bool p_simplify) const {
+	if (p_simplify) {
+		ConvexDecompositionSettings settings;
+		settings.max_convex_hulls = 1;
+		Vector<Ref<Shape3D>> decomposed = convex_decompose(settings);
+		if (decomposed.size() == 1) {
+			return decomposed[0];
+		} else {
+			ERR_PRINT("Convex shape simplification failed, falling back to simpler process.");
+		}
+	}
+
+	Vector<Vector3> vertices;
 	for (int i = 0; i < get_surface_count(); i++) {
 		Array a = surface_get_arrays(i);
 		ERR_FAIL_COND_V(a.is_empty(), Ref<ConvexPolygonShape3D>());
@@ -232,14 +373,26 @@ Ref<Shape3D> Mesh::create_convex_shape() const {
 	}
 
 	Ref<ConvexPolygonShape3D> shape = memnew(ConvexPolygonShape3D);
+
+	if (p_clean) {
+		Geometry3D::MeshData md;
+		Error err = ConvexHullComputer::convex_hull(vertices, md);
+		if (err == OK) {
+			shape->set_points(md.vertices);
+			return shape;
+		} else {
+			ERR_PRINT("Convex shape cleaning failed, falling back to simpler process.");
+		}
+	}
+
 	shape->set_points(vertices);
 	return shape;
 }
 
-Ref<Shape3D> Mesh::create_trimesh_shape() const {
+Ref<ConcavePolygonShape3D> Mesh::create_trimesh_shape() const {
 	Vector<Face3> faces = get_faces();
 	if (faces.size() == 0) {
-		return Ref<Shape3D>();
+		return Ref<ConcavePolygonShape3D>();
 	}
 
 	Vector<Vector3> face_points;
@@ -374,7 +527,7 @@ Ref<Mesh> Mesh::create_outline(float p_margin) const {
 			has_indices = true;
 		}
 
-		Map<Vector3, Vector3> normal_accum;
+		HashMap<Vector3, Vector3> normal_accum;
 
 		//fill normals with triangle normals
 		for (int i = 0; i < vc; i += 3) {
@@ -393,13 +546,13 @@ Ref<Mesh> Mesh::create_outline(float p_margin) const {
 			Vector3 n = Plane(t[0], t[1], t[2]).normal;
 
 			for (int j = 0; j < 3; j++) {
-				Map<Vector3, Vector3>::Element *E = normal_accum.find(t[j]);
+				HashMap<Vector3, Vector3>::Iterator E = normal_accum.find(t[j]);
 				if (!E) {
 					normal_accum[t[j]] = n;
 				} else {
-					float d = n.dot(E->get());
+					float d = n.dot(E->value);
 					if (d < 1.0) {
-						E->get() += n * (1.0 - d);
+						E->value += n * (1.0 - d);
 					}
 					//E->get()+=n;
 				}
@@ -408,8 +561,8 @@ Ref<Mesh> Mesh::create_outline(float p_margin) const {
 
 		//normalize
 
-		for (Map<Vector3, Vector3>::Element *E = normal_accum.front(); E; E = E->next()) {
-			E->get().normalize();
+		for (KeyValue<Vector3, Vector3> &E : normal_accum) {
+			E.value.normalize();
 		}
 
 		//displace normals
@@ -418,10 +571,10 @@ Ref<Mesh> Mesh::create_outline(float p_margin) const {
 		for (int i = 0; i < vc2; i++) {
 			Vector3 t = r[i];
 
-			Map<Vector3, Vector3>::Element *E = normal_accum.find(t);
+			HashMap<Vector3, Vector3>::Iterator E = normal_accum.find(t);
 			ERR_CONTINUE(!E);
 
-			t += E->get() * p_margin;
+			t += E->value * p_margin;
 			r[i] = t;
 		}
 
@@ -522,6 +675,7 @@ void Mesh::_bind_methods() {
 	BIND_ENUM_CONSTANT(ARRAY_FORMAT_BLEND_SHAPE_MASK);
 
 	BIND_ENUM_CONSTANT(ARRAY_FORMAT_CUSTOM_BASE);
+	BIND_ENUM_CONSTANT(ARRAY_FORMAT_CUSTOM_BITS);
 	BIND_ENUM_CONSTANT(ARRAY_FORMAT_CUSTOM0_SHIFT);
 	BIND_ENUM_CONSTANT(ARRAY_FORMAT_CUSTOM1_SHIFT);
 	BIND_ENUM_CONSTANT(ARRAY_FORMAT_CUSTOM2_SHIFT);
@@ -536,6 +690,21 @@ void Mesh::_bind_methods() {
 
 	BIND_ENUM_CONSTANT(BLEND_SHAPE_MODE_NORMALIZED);
 	BIND_ENUM_CONSTANT(BLEND_SHAPE_MODE_RELATIVE);
+
+	GDVIRTUAL_BIND(_get_surface_count)
+	GDVIRTUAL_BIND(_surface_get_array_len, "index")
+	GDVIRTUAL_BIND(_surface_get_array_index_len, "index")
+	GDVIRTUAL_BIND(_surface_get_arrays, "index")
+	GDVIRTUAL_BIND(_surface_get_blend_shape_arrays, "index")
+	GDVIRTUAL_BIND(_surface_get_lods, "index")
+	GDVIRTUAL_BIND(_surface_get_format, "index")
+	GDVIRTUAL_BIND(_surface_get_primitive_type, "index")
+	GDVIRTUAL_BIND(_surface_set_material, "index", "material")
+	GDVIRTUAL_BIND(_surface_get_material, "index")
+	GDVIRTUAL_BIND(_get_blend_shape_count)
+	GDVIRTUAL_BIND(_get_blend_shape_name, "index")
+	GDVIRTUAL_BIND(_set_blend_shape_name, "index", "name")
+	GDVIRTUAL_BIND(_get_aabb)
 }
 
 void Mesh::clear_cache() const {
@@ -543,196 +712,403 @@ void Mesh::clear_cache() const {
 	debug_lines.clear();
 }
 
-Vector<Ref<Shape3D>> Mesh::convex_decompose() const {
-	ERR_FAIL_COND_V(!convex_composition_function, Vector<Ref<Shape3D>>());
+Vector<Ref<Shape3D>> Mesh::convex_decompose(const ConvexDecompositionSettings &p_settings) const {
+	ERR_FAIL_COND_V(!convex_decomposition_function, Vector<Ref<Shape3D>>());
 
-	const Vector<Face3> faces = get_faces();
+	Ref<TriangleMesh> tm = generate_triangle_mesh();
+	ERR_FAIL_COND_V(!tm.is_valid(), Vector<Ref<Shape3D>>());
 
-	Vector<Vector<Face3>> decomposed = convex_composition_function(faces);
+	const Vector<TriangleMesh::Triangle> &triangles = tm->get_triangles();
+	int triangle_count = triangles.size();
+
+	Vector<uint32_t> indices;
+	{
+		indices.resize(triangle_count * 3);
+		uint32_t *w = indices.ptrw();
+		for (int i = 0; i < triangle_count; i++) {
+			for (int j = 0; j < 3; j++) {
+				w[i * 3 + j] = triangles[i].indices[j];
+			}
+		}
+	}
+
+	const Vector<Vector3> &vertices = tm->get_vertices();
+	int vertex_count = vertices.size();
+
+	Vector<Vector<Vector3>> decomposed = convex_decomposition_function((real_t *)vertices.ptr(), vertex_count, indices.ptr(), triangle_count, p_settings, nullptr);
 
 	Vector<Ref<Shape3D>> ret;
 
 	for (int i = 0; i < decomposed.size(); i++) {
-		Set<Vector3> points;
-		for (int j = 0; j < decomposed[i].size(); j++) {
-			points.insert(decomposed[i][j].vertex[0]);
-			points.insert(decomposed[i][j].vertex[1]);
-			points.insert(decomposed[i][j].vertex[2]);
-		}
-
-		Vector<Vector3> convex_points;
-		convex_points.resize(points.size());
-		{
-			Vector3 *w = convex_points.ptrw();
-			int idx = 0;
-			for (Set<Vector3>::Element *E = points.front(); E; E = E->next()) {
-				w[idx++] = E->get();
-			}
-		}
-
 		Ref<ConvexPolygonShape3D> shape;
-		shape.instance();
-		shape->set_points(convex_points);
+		shape.instantiate();
+		shape->set_points(decomposed[i]);
 		ret.push_back(shape);
 	}
 
 	return ret;
 }
 
+int Mesh::get_builtin_bind_pose_count() const {
+	return 0;
+}
+
+Transform3D Mesh::get_builtin_bind_pose(int p_index) const {
+	return Transform3D();
+}
+
 Mesh::Mesh() {
 }
 
-#if 0
-static Vector<uint8_t> _fix_array_compatibility(const Vector<uint8_t> &p_src, uint32_t p_format, uint32_t p_elements) {
-	enum ArrayType {
-		OLD_ARRAY_VERTEX = 0,
-		OLD_ARRAY_NORMAL = 1,
-		OLD_ARRAY_TANGENT = 2,
-		OLD_ARRAY_COLOR = 3,
-		OLD_ARRAY_TEX_UV = 4,
-		OLD_ARRAY_TEX_UV2 = 5,
-		OLD_ARRAY_BONES = 6,
-		OLD_ARRAY_WEIGHTS = 7,
-		OLD_ARRAY_INDEX = 8,
-		OLD_ARRAY_MAX = 9
-	};
+enum OldArrayType {
+	OLD_ARRAY_VERTEX,
+	OLD_ARRAY_NORMAL,
+	OLD_ARRAY_TANGENT,
+	OLD_ARRAY_COLOR,
+	OLD_ARRAY_TEX_UV,
+	OLD_ARRAY_TEX_UV2,
+	OLD_ARRAY_BONES,
+	OLD_ARRAY_WEIGHTS,
+	OLD_ARRAY_INDEX,
+	OLD_ARRAY_MAX,
+};
 
-	enum ArrayFormat {
-		/* OLD_ARRAY FORMAT FLAGS */
-		OLD_ARRAY_FORMAT_VERTEX = 1 << OLD_ARRAY_VERTEX, // mandatory
-		OLD_ARRAY_FORMAT_NORMAL = 1 << OLD_ARRAY_NORMAL,
-		OLD_ARRAY_FORMAT_TANGENT = 1 << OLD_ARRAY_TANGENT,
-		OLD_ARRAY_FORMAT_COLOR = 1 << OLD_ARRAY_COLOR,
-		OLD_ARRAY_FORMAT_TEX_UV = 1 << OLD_ARRAY_TEX_UV,
-		OLD_ARRAY_FORMAT_TEX_UV2 = 1 << OLD_ARRAY_TEX_UV2,
-		OLD_ARRAY_FORMAT_BONES = 1 << OLD_ARRAY_BONES,
-		OLD_ARRAY_FORMAT_WEIGHTS = 1 << OLD_ARRAY_WEIGHTS,
-		OLD_ARRAY_FORMAT_INDEX = 1 << OLD_ARRAY_INDEX,
+enum OldArrayFormat {
+	/* OLD_ARRAY FORMAT FLAGS */
+	OLD_ARRAY_FORMAT_VERTEX = 1 << OLD_ARRAY_VERTEX, // mandatory
+	OLD_ARRAY_FORMAT_NORMAL = 1 << OLD_ARRAY_NORMAL,
+	OLD_ARRAY_FORMAT_TANGENT = 1 << OLD_ARRAY_TANGENT,
+	OLD_ARRAY_FORMAT_COLOR = 1 << OLD_ARRAY_COLOR,
+	OLD_ARRAY_FORMAT_TEX_UV = 1 << OLD_ARRAY_TEX_UV,
+	OLD_ARRAY_FORMAT_TEX_UV2 = 1 << OLD_ARRAY_TEX_UV2,
+	OLD_ARRAY_FORMAT_BONES = 1 << OLD_ARRAY_BONES,
+	OLD_ARRAY_FORMAT_WEIGHTS = 1 << OLD_ARRAY_WEIGHTS,
+	OLD_ARRAY_FORMAT_INDEX = 1 << OLD_ARRAY_INDEX,
 
-		OLD_ARRAY_COMPRESS_BASE = (OLD_ARRAY_INDEX + 1),
-		OLD_ARRAY_COMPRESS_NORMAL = 1 << (OLD_ARRAY_NORMAL + OLD_ARRAY_COMPRESS_BASE),
-		OLD_ARRAY_COMPRESS_TANGENT = 1 << (OLD_ARRAY_TANGENT + OLD_ARRAY_COMPRESS_BASE),
-		OLD_ARRAY_COMPRESS_COLOR = 1 << (OLD_ARRAY_COLOR + OLD_ARRAY_COMPRESS_BASE),
-		OLD_ARRAY_COMPRESS_TEX_UV = 1 << (OLD_ARRAY_TEX_UV + OLD_ARRAY_COMPRESS_BASE),
-		OLD_ARRAY_COMPRESS_TEX_UV2 = 1 << (OLD_ARRAY_TEX_UV2 + OLD_ARRAY_COMPRESS_BASE),
-		OLD_ARRAY_COMPRESS_INDEX = 1 << (OLD_ARRAY_INDEX + OLD_ARRAY_COMPRESS_BASE),
-		OLD_ARRAY_COMPRESS_DEFAULT = OLD_ARRAY_COMPRESS_NORMAL | OLD_ARRAY_COMPRESS_TANGENT | OLD_ARRAY_COMPRESS_COLOR | OLD_ARRAY_COMPRESS_TEX_UV | OLD_ARRAY_COMPRESS_TEX_UV2,
+	OLD_ARRAY_COMPRESS_BASE = (OLD_ARRAY_INDEX + 1),
+	OLD_ARRAY_COMPRESS_VERTEX = 1 << (OLD_ARRAY_VERTEX + OLD_ARRAY_COMPRESS_BASE), // mandatory
+	OLD_ARRAY_COMPRESS_NORMAL = 1 << (OLD_ARRAY_NORMAL + OLD_ARRAY_COMPRESS_BASE),
+	OLD_ARRAY_COMPRESS_TANGENT = 1 << (OLD_ARRAY_TANGENT + OLD_ARRAY_COMPRESS_BASE),
+	OLD_ARRAY_COMPRESS_COLOR = 1 << (OLD_ARRAY_COLOR + OLD_ARRAY_COMPRESS_BASE),
+	OLD_ARRAY_COMPRESS_TEX_UV = 1 << (OLD_ARRAY_TEX_UV + OLD_ARRAY_COMPRESS_BASE),
+	OLD_ARRAY_COMPRESS_TEX_UV2 = 1 << (OLD_ARRAY_TEX_UV2 + OLD_ARRAY_COMPRESS_BASE),
+	OLD_ARRAY_COMPRESS_BONES = 1 << (OLD_ARRAY_BONES + OLD_ARRAY_COMPRESS_BASE),
+	OLD_ARRAY_COMPRESS_WEIGHTS = 1 << (OLD_ARRAY_WEIGHTS + OLD_ARRAY_COMPRESS_BASE),
+	OLD_ARRAY_COMPRESS_INDEX = 1 << (OLD_ARRAY_INDEX + OLD_ARRAY_COMPRESS_BASE),
 
-		OLD_ARRAY_FLAG_USE_2D_VERTICES = OLD_ARRAY_COMPRESS_INDEX << 1,
-		OLD_ARRAY_FLAG_USE_DYNAMIC_UPDATE = OLD_ARRAY_COMPRESS_INDEX << 3,
-	};
+	OLD_ARRAY_FLAG_USE_2D_VERTICES = OLD_ARRAY_COMPRESS_INDEX << 1,
+	OLD_ARRAY_FLAG_USE_16_BIT_BONES = OLD_ARRAY_COMPRESS_INDEX << 2,
+	OLD_ARRAY_FLAG_USE_DYNAMIC_UPDATE = OLD_ARRAY_COMPRESS_INDEX << 3,
+	OLD_ARRAY_FLAG_USE_OCTAHEDRAL_COMPRESSION = OLD_ARRAY_COMPRESS_INDEX << 4,
+};
 
-	bool vertex_16bit = p_format & ((1 << (OLD_ARRAY_VERTEX + OLD_ARRAY_COMPRESS_BASE)));
-	bool has_bones = (p_format & OLD_ARRAY_FORMAT_BONES);
-	bool bone_8 = has_bones && !(p_format & (OLD_ARRAY_COMPRESS_INDEX << 2));
-	bool weight_32 = has_bones && !(p_format & (OLD_ARRAY_COMPRESS_TEX_UV2 << 2));
+#ifndef DISABLE_DEPRECATED
+static Array _convert_old_array(const Array &p_old) {
+	Array new_array;
+	new_array.resize(Mesh::ARRAY_MAX);
+	new_array[Mesh::ARRAY_VERTEX] = p_old[OLD_ARRAY_VERTEX];
+	new_array[Mesh::ARRAY_NORMAL] = p_old[OLD_ARRAY_NORMAL];
+	new_array[Mesh::ARRAY_TANGENT] = p_old[OLD_ARRAY_TANGENT];
+	new_array[Mesh::ARRAY_COLOR] = p_old[OLD_ARRAY_COLOR];
+	new_array[Mesh::ARRAY_TEX_UV] = p_old[OLD_ARRAY_TEX_UV];
+	new_array[Mesh::ARRAY_TEX_UV2] = p_old[OLD_ARRAY_TEX_UV2];
+	new_array[Mesh::ARRAY_BONES] = p_old[OLD_ARRAY_BONES];
+	new_array[Mesh::ARRAY_WEIGHTS] = p_old[OLD_ARRAY_WEIGHTS];
+	new_array[Mesh::ARRAY_INDEX] = p_old[OLD_ARRAY_INDEX];
+	return new_array;
+}
 
-	print_line("convert vertex16: " + itos(vertex_16bit) + " convert bone 8 " + itos(bone_8) + " convert weight 32 " + itos(weight_32));
+static Mesh::PrimitiveType _old_primitives[7] = {
+	Mesh::PRIMITIVE_POINTS,
+	Mesh::PRIMITIVE_LINES,
+	Mesh::PRIMITIVE_LINE_STRIP,
+	Mesh::PRIMITIVE_LINES,
+	Mesh::PRIMITIVE_TRIANGLES,
+	Mesh::PRIMITIVE_TRIANGLE_STRIP,
+	Mesh::PRIMITIVE_TRIANGLE_STRIP
+};
+#endif // DISABLE_DEPRECATED
 
-	if (!vertex_16bit && !bone_8 && !weight_32) {
-		return p_src;
-	}
+void _fix_array_compatibility(const Vector<uint8_t> &p_src, uint32_t p_old_format, uint32_t p_new_format, uint32_t p_elements, Vector<uint8_t> &vertex_data, Vector<uint8_t> &attribute_data, Vector<uint8_t> &skin_data) {
+	uint32_t dst_vertex_stride;
+	uint32_t dst_attribute_stride;
+	uint32_t dst_skin_stride;
+	uint32_t dst_offsets[Mesh::ARRAY_MAX];
+	RenderingServer::get_singleton()->mesh_surface_make_offsets_from_format(p_new_format & (~RS::ARRAY_FORMAT_INDEX), p_elements, 0, dst_offsets, dst_vertex_stride, dst_attribute_stride, dst_skin_stride);
 
-	bool vertex_2d = (p_format & (OLD_ARRAY_COMPRESS_INDEX << 1));
+	vertex_data.resize(dst_vertex_stride * p_elements);
+	attribute_data.resize(dst_attribute_stride * p_elements);
+	skin_data.resize(dst_skin_stride * p_elements);
 
-	uint32_t src_stride = p_src.size() / p_elements;
-	uint32_t dst_stride = src_stride + (vertex_16bit ? 4 : 0) + (bone_8 ? 4 : 0) - (weight_32 ? 8 : 0);
+	uint8_t *dst_vertex_ptr = vertex_data.ptrw();
+	uint8_t *dst_attribute_ptr = attribute_data.ptrw();
+	uint8_t *dst_skin_ptr = skin_data.ptrw();
 
-	Vector<uint8_t> ret = p_src;
+	const uint8_t *src_vertex_ptr = p_src.ptr();
+	uint32_t src_vertex_stride = p_src.size() / p_elements;
 
-	ret.resize(dst_stride * p_elements);
-	{
-		uint8_t *w = ret.ptrw();
-		const uint8_t *r = p_src.ptr();
-
-		for (uint32_t i = 0; i < p_elements; i++) {
-			uint32_t remaining = src_stride;
-			const uint8_t *src = (const uint8_t *)(r + src_stride * i);
-			uint8_t *dst = (uint8_t *)(w + dst_stride * i);
-
-			if (!vertex_2d) { //3D
-				if (vertex_16bit) {
-					float *dstw = (float *)dst;
-					const uint16_t *srcr = (const uint16_t *)src;
-					dstw[0] = Math::half_to_float(srcr[0]);
-					dstw[1] = Math::half_to_float(srcr[1]);
-					dstw[2] = Math::half_to_float(srcr[2]);
-					remaining -= 8;
-					src += 8;
-				} else {
-					src += 12;
-					remaining -= 12;
-				}
-				dst += 12;
-			} else {
-				if (vertex_16bit) {
-					float *dstw = (float *)dst;
-					const uint16_t *srcr = (const uint16_t *)src;
-					dstw[0] = Math::half_to_float(srcr[0]);
-					dstw[1] = Math::half_to_float(srcr[1]);
-					remaining -= 4;
-					src += 4;
-				} else {
-					src += 8;
-					remaining -= 8;
-				}
-				dst += 8;
-			}
-
-			if (has_bones) {
-				remaining -= bone_8 ? 4 : 8;
-				remaining -= weight_32 ? 16 : 8;
-			}
-
-			for (uint32_t j = 0; j < remaining; j++) {
-				dst[j] = src[j];
-			}
-
-			if (has_bones) {
-				dst += remaining;
-				src += remaining;
-
-				if (bone_8) {
-					const uint8_t *src_bones = (const uint8_t *)src;
-					uint16_t *dst_bones = (uint16_t *)dst;
-
-					dst_bones[0] = src_bones[0];
-					dst_bones[1] = src_bones[1];
-					dst_bones[2] = src_bones[2];
-					dst_bones[3] = src_bones[3];
-
-					src += 4;
-				} else {
-					for (uint32_t j = 0; j < 8; j++) {
-						dst[j] = src[j];
+	uint32_t src_offset = 0;
+	for (uint32_t j = 0; j < OLD_ARRAY_INDEX; j++) {
+		if (!(p_old_format & (1 << j))) {
+			continue;
+		}
+		switch (j) {
+			case OLD_ARRAY_VERTEX: {
+				if (p_old_format & OLD_ARRAY_FLAG_USE_2D_VERTICES) {
+					if (p_old_format & OLD_ARRAY_COMPRESS_VERTEX) {
+						for (uint32_t i = 0; i < p_elements; i++) {
+							const uint16_t *src = (const uint16_t *)&src_vertex_ptr[i * src_vertex_stride];
+							float *dst = (float *)&dst_vertex_ptr[i * dst_vertex_stride];
+							dst[0] = Math::half_to_float(src[0]);
+							dst[1] = Math::half_to_float(src[1]);
+						}
+						src_offset += sizeof(uint16_t) * 2;
+					} else {
+						for (uint32_t i = 0; i < p_elements; i++) {
+							const float *src = (const float *)&src_vertex_ptr[i * src_vertex_stride];
+							float *dst = (float *)&dst_vertex_ptr[i * dst_vertex_stride];
+							dst[0] = src[0];
+							dst[1] = src[1];
+						}
+						src_offset += sizeof(float) * 2;
 					}
-
-					src += 8;
-				}
-
-				dst += 8;
-
-				if (weight_32) {
-					const float *src_weights = (const float *)src;
-					uint16_t *dst_weights = (uint16_t *)dst;
-
-					dst_weights[0] = CLAMP(src_weights[0] * 65535, 0, 65535); //16bits unorm
-					dst_weights[1] = CLAMP(src_weights[1] * 65535, 0, 65535);
-					dst_weights[2] = CLAMP(src_weights[2] * 65535, 0, 65535);
-					dst_weights[3] = CLAMP(src_weights[3] * 65535, 0, 65535);
-
 				} else {
-					for (uint32_t j = 0; j < 8; j++) {
-						dst[j] = src[j];
+					if (p_old_format & OLD_ARRAY_COMPRESS_VERTEX) {
+						for (uint32_t i = 0; i < p_elements; i++) {
+							const uint16_t *src = (const uint16_t *)&src_vertex_ptr[i * src_vertex_stride];
+							float *dst = (float *)&dst_vertex_ptr[i * dst_vertex_stride];
+							dst[0] = Math::half_to_float(src[0]);
+							dst[1] = Math::half_to_float(src[1]);
+							dst[2] = Math::half_to_float(src[2]);
+						}
+						src_offset += sizeof(uint16_t) * 4; //+pad
+					} else {
+						for (uint32_t i = 0; i < p_elements; i++) {
+							const float *src = (const float *)&src_vertex_ptr[i * src_vertex_stride];
+							float *dst = (float *)&dst_vertex_ptr[i * dst_vertex_stride];
+							dst[0] = src[0];
+							dst[1] = src[1];
+							dst[2] = src[2];
+						}
+						src_offset += sizeof(float) * 3;
 					}
 				}
+			} break;
+			case OLD_ARRAY_NORMAL: {
+				if (p_old_format & OLD_ARRAY_FLAG_USE_OCTAHEDRAL_COMPRESSION) {
+					if ((p_old_format & OLD_ARRAY_COMPRESS_NORMAL) && (p_old_format & OLD_ARRAY_FORMAT_TANGENT) && (p_old_format & OLD_ARRAY_COMPRESS_TANGENT)) {
+						for (uint32_t i = 0; i < p_elements; i++) {
+							const int8_t *src = (const int8_t *)&src_vertex_ptr[i * src_vertex_stride + src_offset];
+							int16_t *dst = (int16_t *)&dst_vertex_ptr[i * dst_vertex_stride + dst_offsets[Mesh::ARRAY_NORMAL]];
+
+							dst[0] = (int16_t)CLAMP(src[0] / 127.0f * 32767, -32768, 32767);
+							dst[1] = (int16_t)CLAMP(src[1] / 127.0f * 32767, -32768, 32767);
+						}
+						src_offset += sizeof(int8_t) * 2;
+					} else {
+						for (uint32_t i = 0; i < p_elements; i++) {
+							const int16_t *src = (const int16_t *)&src_vertex_ptr[i * src_vertex_stride + src_offset];
+							int16_t *dst = (int16_t *)&dst_vertex_ptr[i * dst_vertex_stride + dst_offsets[Mesh::ARRAY_NORMAL]];
+
+							dst[0] = src[0];
+							dst[1] = src[1];
+						}
+						src_offset += sizeof(int16_t) * 2;
+					}
+				} else { // No Octahedral compression
+					if (p_old_format & OLD_ARRAY_COMPRESS_NORMAL) {
+						for (uint32_t i = 0; i < p_elements; i++) {
+							const int8_t *src = (const int8_t *)&src_vertex_ptr[i * src_vertex_stride + src_offset];
+							const Vector3 original_normal(src[0], src[1], src[2]);
+							Vector2 res = original_normal.octahedron_encode();
+
+							uint16_t *dst = (uint16_t *)&dst_vertex_ptr[i * dst_vertex_stride + dst_offsets[Mesh::ARRAY_NORMAL]];
+							dst[0] = (uint16_t)CLAMP(res.x * 65535, 0, 65535);
+							dst[1] = (uint16_t)CLAMP(res.y * 65535, 0, 65535);
+						}
+						src_offset += sizeof(uint8_t) * 4; // 1 byte padding
+					} else {
+						for (uint32_t i = 0; i < p_elements; i++) {
+							const float *src = (const float *)&src_vertex_ptr[i * src_vertex_stride + src_offset];
+							const Vector3 original_normal(src[0], src[1], src[2]);
+							Vector2 res = original_normal.octahedron_encode();
+
+							uint16_t *dst = (uint16_t *)&dst_vertex_ptr[i * dst_vertex_stride + dst_offsets[Mesh::ARRAY_NORMAL]];
+							dst[0] = (uint16_t)CLAMP(res.x * 65535, 0, 65535);
+							dst[1] = (uint16_t)CLAMP(res.y * 65535, 0, 65535);
+						}
+						src_offset += sizeof(float) * 3;
+					}
+				}
+
+			} break;
+			case OLD_ARRAY_TANGENT: {
+				if (p_old_format & OLD_ARRAY_FLAG_USE_OCTAHEDRAL_COMPRESSION) {
+					if (p_old_format & OLD_ARRAY_COMPRESS_TANGENT) { // int8 SNORM -> uint16 UNORM
+						for (uint32_t i = 0; i < p_elements; i++) {
+							const int8_t *src = (const int8_t *)&src_vertex_ptr[i * src_vertex_stride + src_offset];
+							uint16_t *dst = (uint16_t *)&dst_vertex_ptr[i * dst_vertex_stride + dst_offsets[Mesh::ARRAY_TANGENT]];
+
+							dst[0] = (uint16_t)CLAMP((src[0] / 127.0f * .5f + .5f) * 65535, 0, 65535);
+							dst[1] = (uint16_t)CLAMP((src[1] / 127.0f * .5f + .5f) * 65535, 0, 65535);
+						}
+						src_offset += sizeof(uint8_t) * 2;
+					} else { // int16 SNORM -> uint16 UNORM
+						for (uint32_t i = 0; i < p_elements; i++) {
+							const int16_t *src = (const int16_t *)&src_vertex_ptr[i * src_vertex_stride + src_offset];
+							uint16_t *dst = (uint16_t *)&dst_vertex_ptr[i * dst_vertex_stride + dst_offsets[Mesh::ARRAY_TANGENT]];
+
+							dst[0] = (uint16_t)CLAMP((src[0] / 32767.0f * .5f + .5f) * 65535, 0, 65535);
+							dst[1] = (uint16_t)CLAMP((src[1] / 32767.0f * .5f + .5f) * 65535, 0, 65535);
+						}
+						src_offset += sizeof(uint16_t) * 2;
+					}
+				} else { // No Octahedral compression
+					if (p_old_format & OLD_ARRAY_COMPRESS_TANGENT) {
+						for (uint32_t i = 0; i < p_elements; i++) {
+							const int8_t *src = (const int8_t *)&src_vertex_ptr[i * src_vertex_stride + src_offset];
+							const Vector3 original_tangent(src[0], src[1], src[2]);
+							Vector2 res = original_tangent.octahedron_tangent_encode(src[3]);
+
+							uint16_t *dst = (uint16_t *)&dst_vertex_ptr[i * dst_vertex_stride + dst_offsets[Mesh::ARRAY_NORMAL]];
+							dst[0] = (uint16_t)CLAMP(res.x * 65535, 0, 65535);
+							dst[1] = (uint16_t)CLAMP(res.y * 65535, 0, 65535);
+						}
+						src_offset += sizeof(uint8_t) * 4;
+					} else {
+						for (uint32_t i = 0; i < p_elements; i++) {
+							const float *src = (const float *)&src_vertex_ptr[i * src_vertex_stride + src_offset];
+							const Vector3 original_tangent(src[0], src[1], src[2]);
+							Vector2 res = original_tangent.octahedron_tangent_encode(src[3]);
+
+							uint16_t *dst = (uint16_t *)&dst_vertex_ptr[i * dst_vertex_stride + dst_offsets[Mesh::ARRAY_NORMAL]];
+							dst[0] = (uint16_t)CLAMP(res.x * 65535, 0, 65535);
+							dst[1] = (uint16_t)CLAMP(res.y * 65535, 0, 65535);
+						}
+						src_offset += sizeof(float) * 4;
+					}
+				}
+			} break;
+			case OLD_ARRAY_COLOR: {
+				if (p_old_format & OLD_ARRAY_COMPRESS_COLOR) {
+					for (uint32_t i = 0; i < p_elements; i++) {
+						const uint32_t *src = (const uint32_t *)&src_vertex_ptr[i * src_vertex_stride + src_offset];
+						uint32_t *dst = (uint32_t *)&dst_attribute_ptr[i * dst_attribute_stride + dst_offsets[Mesh::ARRAY_COLOR]];
+
+						*dst = *src;
+					}
+					src_offset += sizeof(uint32_t);
+				} else {
+					for (uint32_t i = 0; i < p_elements; i++) {
+						const float *src = (const float *)&src_vertex_ptr[i * src_vertex_stride + src_offset];
+						uint8_t *dst = (uint8_t *)&dst_attribute_ptr[i * dst_attribute_stride + dst_offsets[Mesh::ARRAY_COLOR]];
+
+						dst[0] = uint8_t(CLAMP(src[0] * 255.0, 0.0, 255.0));
+						dst[1] = uint8_t(CLAMP(src[1] * 255.0, 0.0, 255.0));
+						dst[2] = uint8_t(CLAMP(src[2] * 255.0, 0.0, 255.0));
+						dst[3] = uint8_t(CLAMP(src[3] * 255.0, 0.0, 255.0));
+					}
+					src_offset += sizeof(float) * 4;
+				}
+			} break;
+			case OLD_ARRAY_TEX_UV: {
+				if (p_old_format & OLD_ARRAY_COMPRESS_TEX_UV) {
+					for (uint32_t i = 0; i < p_elements; i++) {
+						const uint16_t *src = (const uint16_t *)&src_vertex_ptr[i * src_vertex_stride + src_offset];
+						float *dst = (float *)&dst_attribute_ptr[i * dst_attribute_stride + dst_offsets[Mesh::ARRAY_TEX_UV]];
+
+						dst[0] = Math::half_to_float(src[0]);
+						dst[1] = Math::half_to_float(src[1]);
+					}
+					src_offset += sizeof(uint16_t) * 2;
+				} else {
+					for (uint32_t i = 0; i < p_elements; i++) {
+						const float *src = (const float *)&src_vertex_ptr[i * src_vertex_stride + src_offset];
+						float *dst = (float *)&dst_attribute_ptr[i * dst_attribute_stride + dst_offsets[Mesh::ARRAY_TEX_UV]];
+
+						dst[0] = src[0];
+						dst[1] = src[1];
+					}
+					src_offset += sizeof(float) * 2;
+				}
+
+			} break;
+			case OLD_ARRAY_TEX_UV2: {
+				if (p_old_format & OLD_ARRAY_COMPRESS_TEX_UV2) {
+					for (uint32_t i = 0; i < p_elements; i++) {
+						const uint16_t *src = (const uint16_t *)&src_vertex_ptr[i * src_vertex_stride + src_offset];
+						float *dst = (float *)&dst_attribute_ptr[i * dst_attribute_stride + dst_offsets[Mesh::ARRAY_TEX_UV2]];
+
+						dst[0] = Math::half_to_float(src[0]);
+						dst[1] = Math::half_to_float(src[1]);
+					}
+					src_offset += sizeof(uint16_t) * 2;
+				} else {
+					for (uint32_t i = 0; i < p_elements; i++) {
+						const float *src = (const float *)&src_vertex_ptr[i * src_vertex_stride + src_offset];
+						float *dst = (float *)&dst_attribute_ptr[i * dst_attribute_stride + dst_offsets[Mesh::ARRAY_TEX_UV2]];
+
+						dst[0] = src[0];
+						dst[1] = src[1];
+					}
+					src_offset += sizeof(float) * 2;
+				}
+			} break;
+			case OLD_ARRAY_BONES: {
+				if (p_old_format & OLD_ARRAY_FLAG_USE_16_BIT_BONES) {
+					for (uint32_t i = 0; i < p_elements; i++) {
+						const uint16_t *src = (const uint16_t *)&src_vertex_ptr[i * src_vertex_stride + src_offset];
+						uint16_t *dst = (uint16_t *)&dst_skin_ptr[i * dst_skin_stride + dst_offsets[Mesh::ARRAY_BONES]];
+
+						dst[0] = src[0];
+						dst[1] = src[1];
+						dst[2] = src[2];
+						dst[3] = src[3];
+					}
+					src_offset += sizeof(uint16_t) * 4;
+				} else {
+					for (uint32_t i = 0; i < p_elements; i++) {
+						const uint8_t *src = (const uint8_t *)&src_vertex_ptr[i * src_vertex_stride + src_offset];
+						uint16_t *dst = (uint16_t *)&dst_skin_ptr[i * dst_skin_stride + dst_offsets[Mesh::ARRAY_BONES]];
+
+						dst[0] = src[0];
+						dst[1] = src[1];
+						dst[2] = src[2];
+						dst[3] = src[3];
+					}
+					src_offset += sizeof(uint8_t) * 4;
+				}
+			} break;
+			case OLD_ARRAY_WEIGHTS: {
+				if (p_old_format & OLD_ARRAY_COMPRESS_WEIGHTS) {
+					for (uint32_t i = 0; i < p_elements; i++) {
+						const uint16_t *src = (const uint16_t *)&src_vertex_ptr[i * src_vertex_stride + src_offset];
+						uint16_t *dst = (uint16_t *)&dst_skin_ptr[i * dst_skin_stride + dst_offsets[Mesh::ARRAY_WEIGHTS]];
+
+						dst[0] = src[0];
+						dst[1] = src[1];
+						dst[2] = src[2];
+						dst[3] = src[3];
+					}
+					src_offset += sizeof(uint16_t) * 4;
+				} else {
+					for (uint32_t i = 0; i < p_elements; i++) {
+						const float *src = (const float *)&src_vertex_ptr[i * src_vertex_stride + src_offset];
+						uint16_t *dst = (uint16_t *)&dst_skin_ptr[i * dst_skin_stride + dst_offsets[Mesh::ARRAY_WEIGHTS]];
+
+						dst[0] = uint16_t(CLAMP(src[0] * 65535.0, 0, 65535.0));
+						dst[1] = uint16_t(CLAMP(src[1] * 65535.0, 0, 65535.0));
+						dst[2] = uint16_t(CLAMP(src[2] * 65535.0, 0, 65535.0));
+						dst[3] = uint16_t(CLAMP(src[3] * 65535.0, 0, 65535.0));
+					}
+					src_offset += sizeof(float) * 4;
+				}
+			} break;
+			default: {
 			}
 		}
 	}
-
-	return ret;
 }
-#endif
 
 bool ArrayMesh::_set(const StringName &p_name, const Variant &p_value) {
 	String sname = p_name;
@@ -758,7 +1134,9 @@ bool ArrayMesh::_set(const StringName &p_name, const Variant &p_value) {
 		return false;
 	}
 
-	WARN_DEPRECATED_MSG("Mesh uses old surface format, which is deprecated (and loads slower). Consider re-importing or re-saving the scene.");
+	WARN_DEPRECATED_MSG(vformat(
+			"Mesh uses old surface format, which is deprecated (and loads slower). Consider re-importing or re-saving the scene. Path: \"%s\"",
+			get_path()));
 
 	int idx = sname.get_slicec('/', 1).to_int();
 	String what = sname.get_slicec('/', 2);
@@ -771,10 +1149,13 @@ bool ArrayMesh::_set(const StringName &p_name, const Variant &p_value) {
 		if (d.has("arrays")) {
 			//oldest format (2.x)
 			ERR_FAIL_COND_V(!d.has("morph_arrays"), false);
-			add_surface_from_arrays(PrimitiveType(int(d["primitive"])), d["arrays"], d["morph_arrays"]);
+			Array morph_arrays = d["morph_arrays"];
+			for (int i = 0; i < morph_arrays.size(); i++) {
+				morph_arrays[i] = _convert_old_array(morph_arrays[i]);
+			}
+			add_surface_from_arrays(_old_primitives[int(d["primitive"])], _convert_old_array(d["arrays"]), morph_arrays);
 
 		} else if (d.has("array_data")) {
-#if 0
 			//print_line("array data (old style");
 			//older format (3.x)
 			Vector<uint8_t> array_data = d["array_data"];
@@ -784,51 +1165,79 @@ bool ArrayMesh::_set(const StringName &p_name, const Variant &p_value) {
 			}
 
 			ERR_FAIL_COND_V(!d.has("format"), false);
-			uint32_t format = d["format"];
+			uint32_t old_format = d["format"];
 
 			uint32_t primitive = d["primitive"];
 
-			uint32_t primitive_remap[7] = {
-				PRIMITIVE_POINTS,
-				PRIMITIVE_LINES,
-				PRIMITIVE_LINE_STRIP,
-				PRIMITIVE_LINES,
-				PRIMITIVE_TRIANGLES,
-				PRIMITIVE_TRIANGLE_STRIP,
-				PRIMITIVE_TRIANGLE_STRIP
-			};
-
-			primitive = primitive_remap[primitive]; //compatibility
+			primitive = _old_primitives[primitive]; //compatibility
 
 			ERR_FAIL_COND_V(!d.has("vertex_count"), false);
 			int vertex_count = d["vertex_count"];
 
-			array_data = _fix_array_compatibility(array_data, format, vertex_count);
+			uint32_t new_format = ARRAY_FORMAT_VERTEX;
+
+			if (old_format & OLD_ARRAY_FORMAT_NORMAL) {
+				new_format |= ARRAY_FORMAT_NORMAL;
+			}
+			if (old_format & OLD_ARRAY_FORMAT_TANGENT) {
+				new_format |= ARRAY_FORMAT_TANGENT;
+			}
+			if (old_format & OLD_ARRAY_FORMAT_COLOR) {
+				new_format |= ARRAY_FORMAT_COLOR;
+			}
+			if (old_format & OLD_ARRAY_FORMAT_TEX_UV) {
+				new_format |= ARRAY_FORMAT_TEX_UV;
+			}
+			if (old_format & OLD_ARRAY_FORMAT_TEX_UV2) {
+				new_format |= ARRAY_FORMAT_TEX_UV2;
+			}
+			if (old_format & OLD_ARRAY_FORMAT_BONES) {
+				new_format |= ARRAY_FORMAT_BONES;
+			}
+			if (old_format & OLD_ARRAY_FORMAT_WEIGHTS) {
+				new_format |= ARRAY_FORMAT_WEIGHTS;
+			}
+			if (old_format & OLD_ARRAY_FORMAT_INDEX) {
+				new_format |= ARRAY_FORMAT_INDEX;
+			}
+			if (old_format & OLD_ARRAY_FLAG_USE_2D_VERTICES) {
+				new_format |= OLD_ARRAY_FLAG_USE_2D_VERTICES;
+			}
+
+			Vector<uint8_t> vertex_array;
+			Vector<uint8_t> attribute_array;
+			Vector<uint8_t> skin_array;
+
+			_fix_array_compatibility(array_data, old_format, new_format, vertex_count, vertex_array, attribute_array, skin_array);
 
 			int index_count = 0;
 			if (d.has("index_count")) {
 				index_count = d["index_count"];
 			}
 
-			Vector<Vector<uint8_t>> blend_shapes;
+			Vector<uint8_t> blend_shapes_new;
 
 			if (d.has("blend_shape_data")) {
 				Array blend_shape_data = d["blend_shape_data"];
 				for (int i = 0; i < blend_shape_data.size(); i++) {
-					Vector<uint8_t> shape = blend_shape_data[i];
-					shape = _fix_array_compatibility(shape, format, vertex_count);
+					Vector<uint8_t> blend_vertex_array;
+					Vector<uint8_t> blend_attribute_array;
+					Vector<uint8_t> blend_skin_array;
 
-					blend_shapes.push_back(shape);
+					Vector<uint8_t> shape = blend_shape_data[i];
+					_fix_array_compatibility(shape, old_format, new_format, vertex_count, blend_vertex_array, blend_attribute_array, blend_skin_array);
+
+					blend_shapes_new.append_array(blend_vertex_array);
 				}
 			}
 
 			//clear unused flags
-			print_line("format pre: " + itos(format));
-			format &= ~uint32_t((1 << (ARRAY_VERTEX + ARRAY_COMPRESS_BASE)) | (ARRAY_COMPRESS_INDEX << 2) | (ARRAY_COMPRESS_TEX_UV2 << 2));
-			print_line("format post: " + itos(format));
+			print_verbose("Mesh format pre-conversion: " + itos(old_format));
+
+			print_verbose("Mesh format post-conversion: " + itos(new_format));
 
 			ERR_FAIL_COND_V(!d.has("aabb"), false);
-			AABB aabb = d["aabb"];
+			AABB aabb_new = d["aabb"];
 
 			Vector<AABB> bone_aabb;
 			if (d.has("skeleton_aabb")) {
@@ -840,8 +1249,8 @@ bool ArrayMesh::_set(const StringName &p_name, const Variant &p_value) {
 				}
 			}
 
-			add_surface(format, PrimitiveType(primitive), array_data, vertex_count, array_index_data, index_count, aabb, blend_shapes, bone_aabb);
-#endif
+			add_surface(new_format, PrimitiveType(primitive), vertex_array, attribute_array, skin_array, vertex_count, array_index_data, index_count, aabb_new, blend_shapes_new, bone_aabb);
+
 		} else {
 			ERR_FAIL_V(false);
 		}
@@ -933,7 +1342,7 @@ Array ArrayMesh::_get_surfaces() const {
 			data["material"] = surfaces[i].material;
 		}
 
-		if (surfaces[i].name != String()) {
+		if (!surfaces[i].name.is_empty()) {
 			data["name"] = surfaces[i].name;
 		}
 
@@ -1017,9 +1426,9 @@ void ArrayMesh::_set_surfaces(const Array &p_surfaces) {
 			}
 		}
 
-		String name;
+		String surf_name;
 		if (d.has("name")) {
-			name = d["name"];
+			surf_name = d["name"];
 		}
 
 		bool _2d = false;
@@ -1029,7 +1438,7 @@ void ArrayMesh::_set_surfaces(const Array &p_surfaces) {
 
 		surface_data.push_back(surface);
 		surface_materials.push_back(material);
-		surface_names.push_back(name);
+		surface_names.push_back(surf_name);
 		surface_2d.push_back(_2d);
 	}
 
@@ -1112,9 +1521,9 @@ void ArrayMesh::_get_property_list(List<PropertyInfo> *p_list) const {
 	for (int i = 0; i < surfaces.size(); i++) {
 		p_list->push_back(PropertyInfo(Variant::STRING, "surface_" + itos(i + 1) + "/name", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_EDITOR));
 		if (surfaces[i].is_2d) {
-			p_list->push_back(PropertyInfo(Variant::OBJECT, "surface_" + itos(i + 1) + "/material", PROPERTY_HINT_RESOURCE_TYPE, "ShaderMaterial,CanvasItemMaterial", PROPERTY_USAGE_EDITOR));
+			p_list->push_back(PropertyInfo(Variant::OBJECT, "surface_" + itos(i + 1) + "/material", PROPERTY_HINT_RESOURCE_TYPE, "CanvasItemMaterial,ShaderMaterial", PROPERTY_USAGE_EDITOR));
 		} else {
-			p_list->push_back(PropertyInfo(Variant::OBJECT, "surface_" + itos(i + 1) + "/material", PROPERTY_HINT_RESOURCE_TYPE, "ShaderMaterial,StandardMaterial3D", PROPERTY_USAGE_EDITOR));
+			p_list->push_back(PropertyInfo(Variant::OBJECT, "surface_" + itos(i + 1) + "/material", PROPERTY_HINT_RESOURCE_TYPE, "BaseMaterial3D,ShaderMaterial", PROPERTY_USAGE_EDITOR));
 		}
 	}
 }
@@ -1131,9 +1540,8 @@ void ArrayMesh::_recompute_aabb() {
 		}
 	}
 }
-#ifndef _MSC_VER
-#warning need to add binding to add_surface using future MeshSurfaceData object
-#endif
+
+// TODO: Need to add binding to add_surface using future MeshSurfaceData object.
 void ArrayMesh::add_surface(uint32_t p_format, PrimitiveType p_primitive, const Vector<uint8_t> &p_array, const Vector<uint8_t> &p_attribute_array, const Vector<uint8_t> &p_skin_array, int p_vertex_count, const Vector<uint8_t> &p_index_array, int p_index_count, const AABB &p_aabb, const Vector<uint8_t> &p_blend_shape_data, const Vector<AABB> &p_bone_aabbs, const Vector<RS::SurfaceData::LOD> &p_lods) {
 	_create_if_empty();
 
@@ -1169,7 +1577,7 @@ void ArrayMesh::add_surface(uint32_t p_format, PrimitiveType p_primitive, const 
 	emit_changed();
 }
 
-void ArrayMesh::add_surface_from_arrays(PrimitiveType p_primitive, const Array &p_arrays, const Array &p_blend_shapes, const Dictionary &p_lods, uint32_t p_flags) {
+void ArrayMesh::add_surface_from_arrays(PrimitiveType p_primitive, const Array &p_arrays, const TypedArray<Array> &p_blend_shapes, const Dictionary &p_lods, uint32_t p_flags) {
 	ERR_FAIL_COND(p_arrays.size() != ARRAY_MAX);
 
 	RS::SurfaceData surface;
@@ -1195,8 +1603,8 @@ Array ArrayMesh::surface_get_arrays(int p_surface) const {
 	return RenderingServer::get_singleton()->mesh_surface_get_arrays(mesh, p_surface);
 }
 
-Array ArrayMesh::surface_get_blend_shape_arrays(int p_surface) const {
-	ERR_FAIL_INDEX_V(p_surface, surfaces.size(), Array());
+TypedArray<Array> ArrayMesh::surface_get_blend_shape_arrays(int p_surface) const {
+	ERR_FAIL_INDEX_V(p_surface, surfaces.size(), TypedArray<Array>());
 	return RenderingServer::get_singleton()->mesh_surface_get_blend_shape_arrays(mesh, p_surface);
 }
 
@@ -1212,17 +1620,17 @@ int ArrayMesh::get_surface_count() const {
 void ArrayMesh::add_blend_shape(const StringName &p_name) {
 	ERR_FAIL_COND_MSG(surfaces.size(), "Can't add a shape key count if surfaces are already created.");
 
-	StringName name = p_name;
+	StringName shape_name = p_name;
 
-	if (blend_shapes.find(name) != -1) {
+	if (blend_shapes.has(shape_name)) {
 		int count = 2;
 		do {
-			name = String(p_name) + " " + itos(count);
+			shape_name = String(p_name) + " " + itos(count);
 			count++;
-		} while (blend_shapes.find(name) != -1);
+		} while (blend_shapes.has(shape_name));
 	}
 
-	blend_shapes.push_back(name);
+	blend_shapes.push_back(shape_name);
 
 	if (mesh.is_valid()) {
 		RS::get_singleton()->mesh_set_blend_shape_count(mesh, blend_shapes.size());
@@ -1241,17 +1649,17 @@ StringName ArrayMesh::get_blend_shape_name(int p_index) const {
 void ArrayMesh::set_blend_shape_name(int p_index, const StringName &p_name) {
 	ERR_FAIL_INDEX(p_index, blend_shapes.size());
 
-	StringName name = p_name;
-	int found = blend_shapes.find(name);
+	StringName shape_name = p_name;
+	int found = blend_shapes.find(shape_name);
 	if (found != -1 && found != p_index) {
 		int count = 2;
 		do {
-			name = String(p_name) + " " + itos(count);
+			shape_name = String(p_name) + " " + itos(count);
 			count++;
-		} while (blend_shapes.find(name) != -1);
+		} while (blend_shapes.find(shape_name) != -1);
 	}
 
-	blend_shapes.write[p_index] = name;
+	blend_shapes.write[p_index] = shape_name;
 }
 
 void ArrayMesh::clear_blend_shapes() {
@@ -1327,9 +1735,21 @@ String ArrayMesh::surface_get_name(int p_idx) const {
 	return surfaces[p_idx].name;
 }
 
-void ArrayMesh::surface_update_region(int p_surface, int p_offset, const Vector<uint8_t> &p_data) {
+void ArrayMesh::surface_update_vertex_region(int p_surface, int p_offset, const Vector<uint8_t> &p_data) {
 	ERR_FAIL_INDEX(p_surface, surfaces.size());
-	RS::get_singleton()->mesh_surface_update_region(mesh, p_surface, p_offset, p_data);
+	RS::get_singleton()->mesh_surface_update_vertex_region(mesh, p_surface, p_offset, p_data);
+	emit_changed();
+}
+
+void ArrayMesh::surface_update_attribute_region(int p_surface, int p_offset, const Vector<uint8_t> &p_data) {
+	ERR_FAIL_INDEX(p_surface, surfaces.size());
+	RS::get_singleton()->mesh_surface_update_attribute_region(mesh, p_surface, p_offset, p_data);
+	emit_changed();
+}
+
+void ArrayMesh::surface_update_skin_region(int p_surface, int p_offset, const Vector<uint8_t> &p_data) {
+	ERR_FAIL_INDEX(p_surface, surfaces.size());
+	RS::get_singleton()->mesh_surface_update_skin_region(mesh, p_surface, p_offset, p_data);
 	emit_changed();
 }
 
@@ -1394,7 +1814,7 @@ void ArrayMesh::regen_normal_maps() {
 }
 
 //dirty hack
-bool (*array_mesh_lightmap_unwrap_callback)(float p_texel_size, const float *p_vertices, const float *p_normals, int p_vertex_count, const int *p_indices, int p_index_count, float **r_uv, int **r_vertex, int *r_vertex_count, int **r_index, int *r_index_count, int *r_size_hint_x, int *r_size_hint_y, int *&r_cache_data, unsigned int &r_cache_size, bool &r_used_cache);
+bool (*array_mesh_lightmap_unwrap_callback)(float p_texel_size, const float *p_vertices, const float *p_normals, int p_vertex_count, const int *p_indices, int p_index_count, const uint8_t *p_cache_data, bool *r_use_cache, uint8_t **r_mesh_cache, int *r_mesh_cache_size, float **r_uv, int **r_vertex, int *r_vertex_count, int **r_index, int *r_index_count, int *r_size_hint_x, int *r_size_hint_y) = nullptr;
 
 struct ArrayMeshLightmapSurface {
 	Ref<Material> material;
@@ -1403,29 +1823,30 @@ struct ArrayMeshLightmapSurface {
 	uint32_t format = 0;
 };
 
-Error ArrayMesh::lightmap_unwrap(const Transform &p_base_transform, float p_texel_size) {
-	int *cache_data = nullptr;
-	unsigned int cache_size = 0;
-	bool use_cache = false; // Don't use cache
-	return lightmap_unwrap_cached(cache_data, cache_size, use_cache, p_base_transform, p_texel_size);
+Error ArrayMesh::lightmap_unwrap(const Transform3D &p_base_transform, float p_texel_size) {
+	Vector<uint8_t> null_cache;
+	return lightmap_unwrap_cached(p_base_transform, p_texel_size, null_cache, null_cache, false);
 }
 
-Error ArrayMesh::lightmap_unwrap_cached(int *&r_cache_data, unsigned int &r_cache_size, bool &r_used_cache, const Transform &p_base_transform, float p_texel_size) {
+Error ArrayMesh::lightmap_unwrap_cached(const Transform3D &p_base_transform, float p_texel_size, const Vector<uint8_t> &p_src_cache, Vector<uint8_t> &r_dst_cache, bool p_generate_cache) {
 	ERR_FAIL_COND_V(!array_mesh_lightmap_unwrap_callback, ERR_UNCONFIGURED);
 	ERR_FAIL_COND_V_MSG(blend_shapes.size() != 0, ERR_UNAVAILABLE, "Can't unwrap mesh with blend shapes.");
+	ERR_FAIL_COND_V_MSG(p_texel_size <= 0.0f, ERR_PARAMETER_RANGE_ERROR, "Texel size must be greater than 0.");
 
-	Vector<float> vertices;
-	Vector<float> normals;
-	Vector<int> indices;
-	Vector<float> uv;
-	Vector<Pair<int, int>> uv_indices;
+	LocalVector<float> vertices;
+	LocalVector<float> normals;
+	LocalVector<int> indices;
+	LocalVector<float> uv;
+	LocalVector<Pair<int, int>> uv_indices;
 
 	Vector<ArrayMeshLightmapSurface> lightmap_surfaces;
 
 	// Keep only the scale
-	Transform transform = p_base_transform;
-	transform.origin = Vector3();
-	transform.looking_at(Vector3(1, 0, 0), Vector3(0, 1, 0));
+	Basis basis = p_base_transform.get_basis();
+	Vector3 scale = Vector3(basis.get_column(0).length(), basis.get_column(1).length(), basis.get_column(2).length());
+
+	Transform3D transform;
+	transform.scale(scale);
 
 	Basis normal_basis = transform.basis.inverse().transposed();
 
@@ -1439,14 +1860,12 @@ Error ArrayMesh::lightmap_unwrap_cached(int *&r_cache_data, unsigned int &r_cach
 
 		Array arrays = surface_get_arrays(i);
 		s.material = surface_get_material(i);
-		SurfaceTool::create_vertex_array_from_triangle_arrays(arrays, s.vertices);
+		SurfaceTool::create_vertex_array_from_triangle_arrays(arrays, s.vertices, &s.format);
 
-		Vector<Vector3> rvertices = arrays[Mesh::ARRAY_VERTEX];
+		PackedVector3Array rvertices = arrays[Mesh::ARRAY_VERTEX];
 		int vc = rvertices.size();
-		const Vector3 *r = rvertices.ptr();
 
-		Vector<Vector3> rnormals = arrays[Mesh::ARRAY_NORMAL];
-		const Vector3 *rn = rnormals.ptr();
+		PackedVector3Array rnormals = arrays[Mesh::ARRAY_NORMAL];
 
 		int vertex_ofs = vertices.size() / 3;
 
@@ -1455,24 +1874,29 @@ Error ArrayMesh::lightmap_unwrap_cached(int *&r_cache_data, unsigned int &r_cach
 		uv_indices.resize(vertex_ofs + vc);
 
 		for (int j = 0; j < vc; j++) {
-			Vector3 v = transform.xform(r[j]);
-			Vector3 n = normal_basis.xform(rn[j]).normalized();
+			Vector3 v = transform.xform(rvertices[j]);
+			Vector3 n = normal_basis.xform(rnormals[j]).normalized();
 
-			vertices.write[(j + vertex_ofs) * 3 + 0] = v.x;
-			vertices.write[(j + vertex_ofs) * 3 + 1] = v.y;
-			vertices.write[(j + vertex_ofs) * 3 + 2] = v.z;
-			normals.write[(j + vertex_ofs) * 3 + 0] = n.x;
-			normals.write[(j + vertex_ofs) * 3 + 1] = n.y;
-			normals.write[(j + vertex_ofs) * 3 + 2] = n.z;
-			uv_indices.write[j + vertex_ofs] = Pair<int, int>(i, j);
+			vertices[(j + vertex_ofs) * 3 + 0] = v.x;
+			vertices[(j + vertex_ofs) * 3 + 1] = v.y;
+			vertices[(j + vertex_ofs) * 3 + 2] = v.z;
+			normals[(j + vertex_ofs) * 3 + 0] = n.x;
+			normals[(j + vertex_ofs) * 3 + 1] = n.y;
+			normals[(j + vertex_ofs) * 3 + 2] = n.z;
+			uv_indices[j + vertex_ofs] = Pair<int, int>(i, j);
 		}
 
-		Vector<int> rindices = arrays[Mesh::ARRAY_INDEX];
+		PackedInt32Array rindices = arrays[Mesh::ARRAY_INDEX];
 		int ic = rindices.size();
 
+		float eps = 1.19209290e-7F; // Taken from xatlas.h
 		if (ic == 0) {
 			for (int j = 0; j < vc / 3; j++) {
-				if (Face3(r[j * 3 + 0], r[j * 3 + 1], r[j * 3 + 2]).is_degenerate()) {
+				Vector3 p0 = transform.xform(rvertices[j * 3 + 0]);
+				Vector3 p1 = transform.xform(rvertices[j * 3 + 1]);
+				Vector3 p2 = transform.xform(rvertices[j * 3 + 2]);
+
+				if ((p0 - p1).length_squared() < eps || (p1 - p2).length_squared() < eps || (p2 - p0).length_squared() < eps) {
 					continue;
 				}
 
@@ -1482,15 +1906,18 @@ Error ArrayMesh::lightmap_unwrap_cached(int *&r_cache_data, unsigned int &r_cach
 			}
 
 		} else {
-			const int *ri = rindices.ptr();
-
 			for (int j = 0; j < ic / 3; j++) {
-				if (Face3(r[ri[j * 3 + 0]], r[ri[j * 3 + 1]], r[ri[j * 3 + 2]]).is_degenerate()) {
+				Vector3 p0 = transform.xform(rvertices[rindices[j * 3 + 0]]);
+				Vector3 p1 = transform.xform(rvertices[rindices[j * 3 + 1]]);
+				Vector3 p2 = transform.xform(rvertices[rindices[j * 3 + 2]]);
+
+				if ((p0 - p1).length_squared() < eps || (p1 - p2).length_squared() < eps || (p2 - p0).length_squared() < eps) {
 					continue;
 				}
-				indices.push_back(vertex_ofs + ri[j * 3 + 0]);
-				indices.push_back(vertex_ofs + ri[j * 3 + 1]);
-				indices.push_back(vertex_ofs + ri[j * 3 + 2]);
+
+				indices.push_back(vertex_ofs + rindices[j * 3 + 0]);
+				indices.push_back(vertex_ofs + rindices[j * 3 + 1]);
+				indices.push_back(vertex_ofs + rindices[j * 3 + 2]);
 			}
 		}
 
@@ -1499,6 +1926,9 @@ Error ArrayMesh::lightmap_unwrap_cached(int *&r_cache_data, unsigned int &r_cach
 
 	//unwrap
 
+	bool use_cache = p_generate_cache; // Used to request cache generation and to know if cache was used
+	uint8_t *gen_cache;
+	int gen_cache_size;
 	float *gen_uvs;
 	int *gen_vertices;
 	int *gen_indices;
@@ -1507,32 +1937,32 @@ Error ArrayMesh::lightmap_unwrap_cached(int *&r_cache_data, unsigned int &r_cach
 	int size_x;
 	int size_y;
 
-	bool ok = array_mesh_lightmap_unwrap_callback(p_texel_size, vertices.ptr(), normals.ptr(), vertices.size() / 3, indices.ptr(), indices.size(), &gen_uvs, &gen_vertices, &gen_vertex_count, &gen_indices, &gen_index_count, &size_x, &size_y, r_cache_data, r_cache_size, r_used_cache);
+	bool ok = array_mesh_lightmap_unwrap_callback(p_texel_size, vertices.ptr(), normals.ptr(), vertices.size() / 3, indices.ptr(), indices.size(), p_src_cache.ptr(), &use_cache, &gen_cache, &gen_cache_size, &gen_uvs, &gen_vertices, &gen_vertex_count, &gen_indices, &gen_index_count, &size_x, &size_y);
 
 	if (!ok) {
 		return ERR_CANT_CREATE;
 	}
 
-	//remove surfaces
 	clear_surfaces();
 
 	//create surfacetools for each surface..
-	Vector<Ref<SurfaceTool>> surfaces_tools;
+	LocalVector<Ref<SurfaceTool>> surfaces_tools;
 
 	for (int i = 0; i < lightmap_surfaces.size(); i++) {
 		Ref<SurfaceTool> st;
-		st.instance();
+		st.instantiate();
 		st->begin(Mesh::PRIMITIVE_TRIANGLES);
 		st->set_material(lightmap_surfaces[i].material);
 		surfaces_tools.push_back(st); //stay there
 	}
 
 	print_verbose("Mesh: Gen indices: " + itos(gen_index_count));
+
 	//go through all indices
 	for (int i = 0; i < gen_index_count; i += 3) {
-		ERR_FAIL_INDEX_V(gen_vertices[gen_indices[i + 0]], uv_indices.size(), ERR_BUG);
-		ERR_FAIL_INDEX_V(gen_vertices[gen_indices[i + 1]], uv_indices.size(), ERR_BUG);
-		ERR_FAIL_INDEX_V(gen_vertices[gen_indices[i + 2]], uv_indices.size(), ERR_BUG);
+		ERR_FAIL_INDEX_V(gen_vertices[gen_indices[i + 0]], (int)uv_indices.size(), ERR_BUG);
+		ERR_FAIL_INDEX_V(gen_vertices[gen_indices[i + 1]], (int)uv_indices.size(), ERR_BUG);
+		ERR_FAIL_INDEX_V(gen_vertices[gen_indices[i + 2]], (int)uv_indices.size(), ERR_BUG);
 
 		ERR_FAIL_COND_V(uv_indices[gen_vertices[gen_indices[i + 0]]].first != uv_indices[gen_vertices[gen_indices[i + 1]]].first || uv_indices[gen_vertices[gen_indices[i + 0]]].first != uv_indices[gen_vertices[gen_indices[i + 2]]].first, ERR_BUG);
 
@@ -1542,48 +1972,53 @@ Error ArrayMesh::lightmap_unwrap_cached(int *&r_cache_data, unsigned int &r_cach
 			SurfaceTool::Vertex v = lightmap_surfaces[surface].vertices[uv_indices[gen_vertices[gen_indices[i + j]]].second];
 
 			if (lightmap_surfaces[surface].format & ARRAY_FORMAT_COLOR) {
-				surfaces_tools.write[surface]->set_color(v.color);
+				surfaces_tools[surface]->set_color(v.color);
 			}
 			if (lightmap_surfaces[surface].format & ARRAY_FORMAT_TEX_UV) {
-				surfaces_tools.write[surface]->set_uv(v.uv);
+				surfaces_tools[surface]->set_uv(v.uv);
 			}
 			if (lightmap_surfaces[surface].format & ARRAY_FORMAT_NORMAL) {
-				surfaces_tools.write[surface]->set_normal(v.normal);
+				surfaces_tools[surface]->set_normal(v.normal);
 			}
 			if (lightmap_surfaces[surface].format & ARRAY_FORMAT_TANGENT) {
 				Plane t;
 				t.normal = v.tangent;
 				t.d = v.binormal.dot(v.normal.cross(v.tangent)) < 0 ? -1 : 1;
-				surfaces_tools.write[surface]->set_tangent(t);
+				surfaces_tools[surface]->set_tangent(t);
 			}
 			if (lightmap_surfaces[surface].format & ARRAY_FORMAT_BONES) {
-				surfaces_tools.write[surface]->set_bones(v.bones);
+				surfaces_tools[surface]->set_bones(v.bones);
 			}
 			if (lightmap_surfaces[surface].format & ARRAY_FORMAT_WEIGHTS) {
-				surfaces_tools.write[surface]->set_weights(v.weights);
+				surfaces_tools[surface]->set_weights(v.weights);
 			}
 
 			Vector2 uv2(gen_uvs[gen_indices[i + j] * 2 + 0], gen_uvs[gen_indices[i + j] * 2 + 1]);
-			surfaces_tools.write[surface]->set_uv2(uv2);
+			surfaces_tools[surface]->set_uv2(uv2);
 
-			surfaces_tools.write[surface]->add_vertex(v.vertex);
+			surfaces_tools[surface]->add_vertex(v.vertex);
 		}
 	}
 
 	//generate surfaces
-
-	for (int i = 0; i < surfaces_tools.size(); i++) {
-		surfaces_tools.write[i]->index();
-		surfaces_tools.write[i]->commit(Ref<ArrayMesh>((ArrayMesh *)this), lightmap_surfaces[i].format);
+	for (unsigned int i = 0; i < surfaces_tools.size(); i++) {
+		surfaces_tools[i]->index();
+		surfaces_tools[i]->commit(Ref<ArrayMesh>((ArrayMesh *)this), lightmap_surfaces[i].format);
 	}
 
 	set_lightmap_size_hint(Size2(size_x, size_y));
 
-	if (!r_used_cache) {
-		//free stuff
-		::free(gen_vertices);
-		::free(gen_indices);
-		::free(gen_uvs);
+	if (gen_cache_size > 0) {
+		r_dst_cache.resize(gen_cache_size);
+		memcpy(r_dst_cache.ptrw(), gen_cache, gen_cache_size);
+		memfree(gen_cache);
+	}
+
+	if (!use_cache) {
+		// Cache was not used, free the buffers
+		memfree(gen_vertices);
+		memfree(gen_indices);
+		memfree(gen_uvs);
 	}
 
 	return OK;
@@ -1613,7 +2048,9 @@ void ArrayMesh::_bind_methods() {
 
 	ClassDB::bind_method(D_METHOD("add_surface_from_arrays", "primitive", "arrays", "blend_shapes", "lods", "compress_flags"), &ArrayMesh::add_surface_from_arrays, DEFVAL(Array()), DEFVAL(Dictionary()), DEFVAL(0));
 	ClassDB::bind_method(D_METHOD("clear_surfaces"), &ArrayMesh::clear_surfaces);
-	ClassDB::bind_method(D_METHOD("surface_update_region", "surf_idx", "offset", "data"), &ArrayMesh::surface_update_region);
+	ClassDB::bind_method(D_METHOD("surface_update_vertex_region", "surf_idx", "offset", "data"), &ArrayMesh::surface_update_vertex_region);
+	ClassDB::bind_method(D_METHOD("surface_update_attribute_region", "surf_idx", "offset", "data"), &ArrayMesh::surface_update_attribute_region);
+	ClassDB::bind_method(D_METHOD("surface_update_skin_region", "surf_idx", "offset", "data"), &ArrayMesh::surface_update_skin_region);
 	ClassDB::bind_method(D_METHOD("surface_get_array_len", "surf_idx"), &ArrayMesh::surface_get_array_len);
 	ClassDB::bind_method(D_METHOD("surface_get_array_index_len", "surf_idx"), &ArrayMesh::surface_get_array_index_len);
 	ClassDB::bind_method(D_METHOD("surface_get_format", "surf_idx"), &ArrayMesh::surface_get_format);
@@ -1622,7 +2059,7 @@ void ArrayMesh::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("surface_set_name", "surf_idx", "name"), &ArrayMesh::surface_set_name);
 	ClassDB::bind_method(D_METHOD("surface_get_name", "surf_idx"), &ArrayMesh::surface_get_name);
 	ClassDB::bind_method(D_METHOD("create_trimesh_shape"), &ArrayMesh::create_trimesh_shape);
-	ClassDB::bind_method(D_METHOD("create_convex_shape"), &ArrayMesh::create_convex_shape);
+	ClassDB::bind_method(D_METHOD("create_convex_shape", "clean", "simplify"), &ArrayMesh::create_convex_shape, DEFVAL(true), DEFVAL(false));
 	ClassDB::bind_method(D_METHOD("create_outline", "margin"), &ArrayMesh::create_outline);
 	ClassDB::bind_method(D_METHOD("regen_normal_maps"), &ArrayMesh::regen_normal_maps);
 	ClassDB::set_method_flags(get_class_static(), _scs_create("regen_normal_maps"), METHOD_FLAGS_DEFAULT | METHOD_FLAG_EDITOR);
@@ -1643,10 +2080,10 @@ void ArrayMesh::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("_set_surfaces", "surfaces"), &ArrayMesh::_set_surfaces);
 	ClassDB::bind_method(D_METHOD("_get_surfaces"), &ArrayMesh::_get_surfaces);
 
-	ADD_PROPERTY(PropertyInfo(Variant::PACKED_STRING_ARRAY, "_blend_shape_names", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NOEDITOR | PROPERTY_USAGE_INTERNAL), "_set_blend_shape_names", "_get_blend_shape_names");
-	ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "_surfaces", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NOEDITOR | PROPERTY_USAGE_INTERNAL), "_set_surfaces", "_get_surfaces");
+	ADD_PROPERTY(PropertyInfo(Variant::PACKED_STRING_ARRAY, "_blend_shape_names", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL), "_set_blend_shape_names", "_get_blend_shape_names");
+	ADD_PROPERTY(PropertyInfo(Variant::ARRAY, "_surfaces", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_NO_EDITOR | PROPERTY_USAGE_INTERNAL), "_set_surfaces", "_get_surfaces");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "blend_shape_mode", PROPERTY_HINT_ENUM, "Normalized,Relative"), "set_blend_shape_mode", "get_blend_shape_mode");
-	ADD_PROPERTY(PropertyInfo(Variant::AABB, "custom_aabb", PROPERTY_HINT_NONE, ""), "set_custom_aabb", "get_custom_aabb");
+	ADD_PROPERTY(PropertyInfo(Variant::AABB, "custom_aabb", PROPERTY_HINT_NONE, "suffix:m"), "set_custom_aabb", "get_custom_aabb");
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "shadow_mesh", PROPERTY_HINT_RESOURCE_TYPE, "ArrayMesh"), "set_shadow_mesh", "get_shadow_mesh");
 }
 
@@ -1670,4 +2107,18 @@ ArrayMesh::~ArrayMesh() {
 	if (mesh.is_valid()) {
 		RenderingServer::get_singleton()->free(mesh);
 	}
+}
+///////////////
+
+void PlaceholderMesh::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("set_aabb", "aabb"), &PlaceholderMesh::set_aabb);
+	ADD_PROPERTY(PropertyInfo(Variant::AABB, "aabb", PROPERTY_HINT_NONE, "suffix:m"), "set_aabb", "get_aabb");
+}
+
+PlaceholderMesh::PlaceholderMesh() {
+	rid = RS::get_singleton()->mesh_create();
+}
+
+PlaceholderMesh::~PlaceholderMesh() {
+	RS::get_singleton()->free(rid);
 }

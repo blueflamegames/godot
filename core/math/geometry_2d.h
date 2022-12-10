@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -32,14 +32,15 @@
 #define GEOMETRY_2D_H
 
 #include "core/math/delaunay_2d.h"
-#include "core/math/rect2.h"
+#include "core/math/math_funcs.h"
 #include "core/math/triangulate.h"
-#include "core/object/object.h"
+#include "core/math/vector2.h"
+#include "core/math/vector2i.h"
+#include "core/math/vector3.h"
+#include "core/math/vector3i.h"
 #include "core/templates/vector.h"
 
 class Geometry2D {
-	Geometry2D();
-
 public:
 	static real_t get_closest_points_between_segments(const Vector2 &p1, const Vector2 &q1, const Vector2 &p2, const Vector2 &q2, Vector2 &c1, Vector2 &c2) {
 		Vector2 d1 = q1 - p1; // Direction vector of segment S1.
@@ -50,31 +51,31 @@ public:
 		real_t f = d2.dot(r);
 		real_t s, t;
 		// Check if either or both segments degenerate into points.
-		if (a <= CMP_EPSILON && e <= CMP_EPSILON) {
+		if (a <= (real_t)CMP_EPSILON && e <= (real_t)CMP_EPSILON) {
 			// Both segments degenerate into points.
 			c1 = p1;
 			c2 = p2;
 			return Math::sqrt((c1 - c2).dot(c1 - c2));
 		}
-		if (a <= CMP_EPSILON) {
+		if (a <= (real_t)CMP_EPSILON) {
 			// First segment degenerates into a point.
 			s = 0.0;
 			t = f / e; // s = 0 => t = (b*s + f) / e = f / e
-			t = CLAMP(t, 0.0, 1.0);
+			t = CLAMP(t, 0.0f, 1.0f);
 		} else {
 			real_t c = d1.dot(r);
-			if (e <= CMP_EPSILON) {
+			if (e <= (real_t)CMP_EPSILON) {
 				// Second segment degenerates into a point.
 				t = 0.0;
-				s = CLAMP(-c / a, 0.0, 1.0); // t = 0 => s = (b*t - c) / a = -c / a
+				s = CLAMP(-c / a, 0.0f, 1.0f); // t = 0 => s = (b*t - c) / a = -c / a
 			} else {
 				// The general nondegenerate case starts here.
 				real_t b = d1.dot(d2);
 				real_t denom = a * e - b * b; // Always nonnegative.
 				// If segments not parallel, compute closest point on L1 to L2 and
 				// clamp to segment S1. Else pick arbitrary s (here 0).
-				if (denom != 0.0) {
-					s = CLAMP((b * f - c * e) / denom, 0.0, 1.0);
+				if (denom != 0.0f) {
+					s = CLAMP((b * f - c * e) / denom, 0.0f, 1.0f);
 				} else {
 					s = 0.0;
 				}
@@ -85,12 +86,12 @@ public:
 				//If t in [0,1] done. Else clamp t, recompute s for the new value
 				// of t using s = Dot((P2 + D2*t) - P1,D1) / Dot(D1,D1)= (t*b - c) / a
 				// and clamp s to [0, 1].
-				if (t < 0.0) {
+				if (t < 0.0f) {
 					t = 0.0;
-					s = CLAMP(-c / a, 0.0, 1.0);
-				} else if (t > 1.0) {
+					s = CLAMP(-c / a, 0.0f, 1.0f);
+				} else if (t > 1.0f) {
 					t = 1.0;
-					s = CLAMP((b - c) / a, 0.0, 1.0);
+					s = CLAMP((b - c) / a, 0.0f, 1.0f);
 				}
 			}
 		}
@@ -103,15 +104,15 @@ public:
 		Vector2 p = p_point - p_segment[0];
 		Vector2 n = p_segment[1] - p_segment[0];
 		real_t l2 = n.length_squared();
-		if (l2 < 1e-20) {
+		if (l2 < 1e-20f) {
 			return p_segment[0]; // Both points are the same, just give any.
 		}
 
 		real_t d = n.dot(p) / l2;
 
-		if (d <= 0.0) {
+		if (d <= 0.0f) {
 			return p_segment[0]; // Before first point.
-		} else if (d >= 1.0) {
+		} else if (d >= 1.0f) {
 			return p_segment[1]; // After first point.
 		} else {
 			return p_segment[0] + n * d; // Inside.
@@ -136,7 +137,7 @@ public:
 		Vector2 p = p_point - p_segment[0];
 		Vector2 n = p_segment[1] - p_segment[0];
 		real_t l2 = n.length_squared();
-		if (l2 < 1e-20) {
+		if (l2 < 1e-20f) {
 			return p_segment[0]; // Both points are the same, just give any.
 		}
 
@@ -183,18 +184,25 @@ public:
 		C = Vector2(C.x * Bn.x + C.y * Bn.y, C.y * Bn.x - C.x * Bn.y);
 		D = Vector2(D.x * Bn.x + D.y * Bn.y, D.y * Bn.x - D.x * Bn.y);
 
-		if ((C.y < 0 && D.y < 0) || (C.y >= 0 && D.y >= 0)) {
+		// Fail if C x B and D x B have the same sign (segments don't intersect).
+		if ((C.y < (real_t)-CMP_EPSILON && D.y < (real_t)-CMP_EPSILON) || (C.y > (real_t)CMP_EPSILON && D.y > (real_t)CMP_EPSILON)) {
+			return false;
+		}
+
+		// Fail if segments are parallel or colinear.
+		// (when A x B == zero, i.e (C - D) x B == zero, i.e C x B == D x B)
+		if (Math::is_equal_approx(C.y, D.y)) {
 			return false;
 		}
 
 		real_t ABpos = D.x + (C.x - D.x) * D.y / (D.y - C.y);
 
 		// Fail if segment C-D crosses line A-B outside of segment A-B.
-		if (ABpos < 0 || ABpos > 1.0) {
+		if ((ABpos < 0) || (ABpos > 1)) {
 			return false;
 		}
 
-		// (4) Apply the discovered position to line A-B in the original coordinate system.
+		// Apply the discovered position to line A-B in the original coordinate system.
 		if (r_result) {
 			*r_result = p_from_a + B * ABpos;
 		}
@@ -354,12 +362,31 @@ public:
 		for (int i = 0; i < c; i++) {
 			const Vector2 &v1 = p[i];
 			const Vector2 &v2 = p[(i + 1) % c];
-			if (segment_intersects_segment(v1, v2, p_point, further_away, nullptr)) {
+
+			Vector2 res;
+			if (segment_intersects_segment(v1, v2, p_point, further_away, &res)) {
 				intersections++;
+				if (res.is_equal_approx(p_point)) {
+					// Point is in one of the polygon edges.
+					return true;
+				}
 			}
 		}
 
 		return (intersections & 1);
+	}
+
+	static bool is_segment_intersecting_polygon(const Vector2 &p_from, const Vector2 &p_to, const Vector<Vector2> &p_polygon) {
+		int c = p_polygon.size();
+		const Vector2 *p = p_polygon.ptr();
+		for (int i = 0; i < c; i++) {
+			const Vector2 &v1 = p[i];
+			const Vector2 &v2 = p[(i + 1) % c];
+			if (segment_intersects_segment(p_from, p_to, v1, v2, nullptr)) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	static real_t vec2_cross(const Point2 &O, const Point2 &A, const Point2 &B) {
@@ -395,6 +422,45 @@ public:
 		H.resize(k);
 		return H;
 	}
+
+	static Vector<Point2i> bresenham_line(const Point2i &p_start, const Point2i &p_end) {
+		Vector<Point2i> points;
+
+		Vector2i delta = (p_end - p_start).abs() * 2;
+		Vector2i step = (p_end - p_start).sign();
+		Vector2i current = p_start;
+
+		if (delta.x > delta.y) {
+			int err = delta.x / 2;
+
+			for (; current.x != p_end.x; current.x += step.x) {
+				points.push_back(current);
+
+				err -= delta.y;
+				if (err < 0) {
+					current.y += step.y;
+					err += delta.x;
+				}
+			}
+		} else {
+			int err = delta.y / 2;
+
+			for (; current.y != p_end.y; current.y += step.y) {
+				points.push_back(current);
+
+				err -= delta.x;
+				if (err < 0) {
+					current.x += step.x;
+					err += delta.y;
+				}
+			}
+		}
+
+		points.push_back(current);
+
+		return points;
+	}
+
 	static Vector<Vector<Vector2>> decompose_polygon_in_convex(Vector<Point2> polygon);
 
 	static void make_atlas(const Vector<Size2i> &p_rects, Vector<Point2i> &r_result, Size2i &r_size);

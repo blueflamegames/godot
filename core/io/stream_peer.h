@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,11 +31,15 @@
 #ifndef STREAM_PEER_H
 #define STREAM_PEER_H
 
-#include "core/object/reference.h"
+#include "core/object/ref_counted.h"
 
-class StreamPeer : public Reference {
-	GDCLASS(StreamPeer, Reference);
-	OBJ_CATEGORY("Networking");
+#include "core/extension/ext_wrappers.gen.inc"
+#include "core/object/gdvirtual.gen.inc"
+#include "core/object/script_language.h"
+#include "core/variant/native_ptr.h"
+
+class StreamPeer : public RefCounted {
+	GDCLASS(StreamPeer, RefCounted);
 
 protected:
 	static void _bind_methods();
@@ -58,7 +62,8 @@ public:
 
 	virtual int get_available_bytes() const = 0;
 
-	void set_big_endian(bool p_enable);
+	/* helpers */
+	void set_big_endian(bool p_big_endian);
 	bool is_big_endian_enabled() const;
 
 	void put_8(int8_t p_val);
@@ -90,6 +95,28 @@ public:
 	Variant get_var(bool p_allow_objects = false);
 
 	StreamPeer() {}
+};
+
+class StreamPeerExtension : public StreamPeer {
+	GDCLASS(StreamPeerExtension, StreamPeer);
+
+protected:
+	static void _bind_methods();
+
+public:
+	virtual Error put_data(const uint8_t *p_data, int p_bytes) override;
+	GDVIRTUAL3R(Error, _put_data, GDNativeConstPtr<const uint8_t>, int, GDNativePtr<int>);
+
+	virtual Error put_partial_data(const uint8_t *p_data, int p_bytes, int &r_sent) override;
+	GDVIRTUAL3R(Error, _put_partial_data, GDNativeConstPtr<const uint8_t>, int, GDNativePtr<int>);
+
+	virtual Error get_data(uint8_t *p_buffer, int p_bytes) override;
+	GDVIRTUAL3R(Error, _get_data, GDNativePtr<uint8_t>, int, GDNativePtr<int>);
+
+	virtual Error get_partial_data(uint8_t *p_buffer, int p_bytes, int &r_received) override;
+	GDVIRTUAL3R(Error, _get_partial_data, GDNativePtr<uint8_t>, int, GDNativePtr<int>);
+
+	EXBIND0RC(int, get_available_bytes);
 };
 
 class StreamPeerBuffer : public StreamPeer {

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -32,7 +32,7 @@
 #define PACKET_PEER_MBED_DTLS_H
 
 #include "core/io/packet_peer_dtls.h"
-#include "ssl_context_mbedtls.h"
+#include "tls_context_mbedtls.h"
 
 #include <mbedtls/timing.h>
 
@@ -56,10 +56,8 @@ private:
 	void _cleanup();
 
 protected:
-	Ref<SSLContextMbedTLS> ssl_ctx;
+	Ref<TLSContextMbedTLS> tls_ctx;
 	mbedtls_timing_delay_context timer;
-
-	static void _bind_methods();
 
 	Error _do_handshake();
 	int _set_cookie();

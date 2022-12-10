@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,28 +30,28 @@
 
 #include "range.h"
 
-String Range::get_configuration_warning() const {
-	String warning = Control::get_configuration_warning();
+PackedStringArray Range::get_configuration_warnings() const {
+	PackedStringArray warnings = Node::get_configuration_warnings();
 
 	if (shared->exp_ratio && shared->min <= 0) {
-		if (!warning.is_empty()) {
-			warning += "\n\n";
-		}
-		warning += TTR("If \"Exp Edit\" is enabled, \"Min Value\" must be greater than 0.");
+		warnings.push_back(RTR("If \"Exp Edit\" is enabled, \"Min Value\" must be greater than 0."));
 	}
 
-	return warning;
+	return warnings;
 }
 
+void Range::_value_changed(double p_value) {
+	GDVIRTUAL_CALL(_value_changed, p_value);
+}
 void Range::_value_changed_notify() {
 	_value_changed(shared->val);
-	emit_signal("value_changed", shared->val);
-	update();
+	emit_signal(SNAME("value_changed"), shared->val);
+	queue_redraw();
 }
 
 void Range::Shared::emit_value_changed() {
-	for (Set<Range *>::Element *E = owners.front(); E; E = E->next()) {
-		Range *r = E->get();
+	for (Range *E : owners) {
+		Range *r = E;
 		if (!r->is_inside_tree()) {
 			continue;
 		}
@@ -60,13 +60,13 @@ void Range::Shared::emit_value_changed() {
 }
 
 void Range::_changed_notify(const char *p_what) {
-	emit_signal("changed");
-	update();
+	emit_signal(SNAME("changed"));
+	queue_redraw();
 }
 
 void Range::Shared::emit_changed(const char *p_what) {
-	for (Set<Range *>::Element *E = owners.front(); E; E = E->next()) {
-		Range *r = E->get();
+	for (Range *E : owners) {
+		Range *r = E;
 		if (!r->is_inside_tree()) {
 			continue;
 		}
@@ -75,8 +75,17 @@ void Range::Shared::emit_changed(const char *p_what) {
 }
 
 void Range::set_value(double p_val) {
+	double prev_val = shared->val;
+	set_value_no_signal(p_val);
+
+	if (shared->val != prev_val) {
+		shared->emit_value_changed();
+	}
+}
+
+void Range::set_value_no_signal(double p_val) {
 	if (shared->step > 0) {
-		p_val = Math::round(p_val / shared->step) * shared->step;
+		p_val = Math::round((p_val - shared->min) / shared->step) * shared->step + shared->min;
 	}
 
 	if (_rounded_values) {
@@ -96,33 +105,52 @@ void Range::set_value(double p_val) {
 	}
 
 	shared->val = p_val;
-
-	shared->emit_value_changed();
 }
 
 void Range::set_min(double p_min) {
+	if (shared->min == p_min) {
+		return;
+	}
+
 	shared->min = p_min;
+	shared->max = MAX(shared->max, shared->min);
+	shared->page = CLAMP(shared->page, 0, shared->max - shared->min);
 	set_value(shared->val);
 
 	shared->emit_changed("min");
 
-	update_configuration_warning();
+	update_configuration_warnings();
 }
 
 void Range::set_max(double p_max) {
-	shared->max = p_max;
+	double max_validated = MAX(p_max, shared->min);
+	if (shared->max == max_validated) {
+		return;
+	}
+
+	shared->max = max_validated;
+	shared->page = CLAMP(shared->page, 0, shared->max - shared->min);
 	set_value(shared->val);
 
 	shared->emit_changed("max");
 }
 
 void Range::set_step(double p_step) {
+	if (shared->step == p_step) {
+		return;
+	}
+
 	shared->step = p_step;
 	shared->emit_changed("step");
 }
 
 void Range::set_page(double p_page) {
-	shared->page = p_page;
+	double page_validated = CLAMP(p_page, 0, shared->max - shared->min);
+	if (shared->page == page_validated) {
+		return;
+	}
+
+	shared->page = page_validated;
 	set_value(shared->val);
 
 	shared->emit_changed("page");
@@ -181,7 +209,6 @@ double Range::get_as_ratio() const {
 		double v = Math::log(value) / Math::log((double)2);
 
 		return CLAMP((v - exp_min) / (exp_max - exp_min), 0, 1);
-
 	} else {
 		float value = CLAMP(get_value(), shared->min, shared->max);
 		return CLAMP((value - get_min()) / (get_max() - get_min()), 0, 1);
@@ -244,6 +271,7 @@ void Range::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_page"), &Range::get_page);
 	ClassDB::bind_method(D_METHOD("get_as_ratio"), &Range::get_as_ratio);
 	ClassDB::bind_method(D_METHOD("set_value", "value"), &Range::set_value);
+	ClassDB::bind_method(D_METHOD("set_value_no_signal", "value"), &Range::set_value_no_signal);
 	ClassDB::bind_method(D_METHOD("set_min", "minimum"), &Range::set_min);
 	ClassDB::bind_method(D_METHOD("set_max", "maximum"), &Range::set_max);
 	ClassDB::bind_method(D_METHOD("set_step", "step"), &Range::set_step);
@@ -269,11 +297,19 @@ void Range::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "step"), "set_step", "get_step");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "page"), "set_page", "get_page");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "value"), "set_value", "get_value");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "ratio", PROPERTY_HINT_RANGE, "0,1,0.01", 0), "set_as_ratio", "get_as_ratio");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "ratio", PROPERTY_HINT_RANGE, "0,1,0.01", PROPERTY_USAGE_NONE), "set_as_ratio", "get_as_ratio");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "exp_edit"), "set_exp_ratio", "is_ratio_exp");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "rounded"), "set_use_rounded_values", "is_using_rounded_values");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "allow_greater"), "set_allow_greater", "is_greater_allowed");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "allow_lesser"), "set_allow_lesser", "is_lesser_allowed");
+
+	GDVIRTUAL_BIND(_value_changed, "new_value");
+
+	ADD_LINKED_PROPERTY("min_value", "value");
+	ADD_LINKED_PROPERTY("min_value", "max_value");
+	ADD_LINKED_PROPERTY("min_value", "page");
+	ADD_LINKED_PROPERTY("max_value", "value");
+	ADD_LINKED_PROPERTY("max_value", "page");
 }
 
 void Range::set_use_rounded_values(bool p_enable) {
@@ -285,9 +321,13 @@ bool Range::is_using_rounded_values() const {
 }
 
 void Range::set_exp_ratio(bool p_enable) {
+	if (shared->exp_ratio == p_enable) {
+		return;
+	}
+
 	shared->exp_ratio = p_enable;
 
-	update_configuration_warning();
+	update_configuration_warnings();
 }
 
 bool Range::is_ratio_exp() const {

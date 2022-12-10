@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -35,8 +35,13 @@
 #include "core/object/class_db.h"
 #include "core/templates/ring_buffer.h"
 
-class PacketPeer : public Reference {
-	GDCLASS(PacketPeer, Reference);
+#include "core/extension/ext_wrappers.gen.inc"
+#include "core/object/gdvirtual.gen.inc"
+#include "core/object/script_language.h"
+#include "core/variant/native_ptr.h"
+
+class PacketPeer : public RefCounted {
+	GDCLASS(PacketPeer, RefCounted);
 
 	Variant _bnd_get_var(bool p_allow_objects = false);
 
@@ -73,6 +78,23 @@ public:
 	~PacketPeer() {}
 };
 
+class PacketPeerExtension : public PacketPeer {
+	GDCLASS(PacketPeerExtension, PacketPeer);
+
+protected:
+	static void _bind_methods();
+
+public:
+	virtual Error get_packet(const uint8_t **r_buffer, int &r_buffer_size) override; ///< buffer is GONE after next get_packet
+	GDVIRTUAL2R(Error, _get_packet, GDNativeConstPtr<const uint8_t *>, GDNativePtr<int>);
+
+	virtual Error put_packet(const uint8_t *p_buffer, int p_buffer_size) override;
+	GDVIRTUAL2R(Error, _put_packet, GDNativeConstPtr<const uint8_t>, int);
+
+	EXBIND0RC(int, get_available_packet_count);
+	EXBIND0RC(int, get_max_packet_size);
+};
+
 class PacketPeerStream : public PacketPeer {
 	GDCLASS(PacketPeerStream, PacketPeer);
 
@@ -104,4 +126,4 @@ public:
 	PacketPeerStream();
 };
 
-#endif // PACKET_STREAM_H
+#endif // PACKET_PEER_H

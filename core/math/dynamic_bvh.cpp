@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -181,7 +181,7 @@ DynamicBVH::Volume DynamicBVH::_bounds(Node **leaves, int p_count) {
 
 void DynamicBVH::_bottom_up(Node **leaves, int p_count) {
 	while (p_count > 1) {
-		real_t minsize = Math_INF;
+		real_t minsize = INFINITY;
 		int minidx[2] = { -1, -1 };
 		for (int i = 0; i < p_count; ++i) {
 			for (int j = i + 1; j < p_count; ++j) {
@@ -312,8 +312,11 @@ void DynamicBVH::optimize_incremental(int passes) {
 	if (passes < 0) {
 		passes = total_leaves;
 	}
-	if (bvh_root && (passes > 0)) {
+	if (passes > 0) {
 		do {
+			if (!bvh_root) {
+				break;
+			}
 			Node *node = bvh_root;
 			unsigned bit = 0;
 			while (node->is_internal()) {

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -34,11 +34,11 @@
 #include "core/os/memory.h"
 #include "core/os/spin_lock.h"
 #include "core/string/print_string.h"
+#include "core/templates/hash_set.h"
 #include "core/templates/list.h"
 #include "core/templates/oa_hash_map.h"
 #include "core/templates/rid.h"
 #include "core/templates/safe_refcount.h"
-#include "core/templates/set.h"
 
 #include <stdio.h>
 #include <typeinfo>
@@ -53,12 +53,14 @@ protected:
 		return rid;
 	}
 
-	static uint64_t _gen_id() {
-		return base_id.increment();
-	}
-
 	static RID _gen_rid() {
 		return _make_from_id(_gen_id());
+	}
+
+	friend struct VariantUtilityFunctions;
+
+	static uint64_t _gen_id() {
+		return base_id.increment();
 	}
 
 public:
@@ -77,9 +79,9 @@ class RID_Alloc : public RID_AllocBase {
 
 	const char *description = nullptr;
 
-	SpinLock spin_lock;
+	mutable SpinLock spin_lock;
 
-	_FORCE_INLINE_ RID _allocate_rid(const T *p_initializer) {
+	_FORCE_INLINE_ RID _allocate_rid() {
 		if (THREAD_SAFE) {
 			spin_lock.lock();
 		}
@@ -101,7 +103,7 @@ class RID_Alloc : public RID_AllocBase {
 
 			//initialize
 			for (uint32_t i = 0; i < elements_in_chunk; i++) {
-				//dont initialize chunk
+				// Don't initialize chunk.
 				validator_chunks[chunk_count][i] = 0xFFFFFFFF;
 				free_list_chunks[chunk_count][i] = alloc_count + i;
 			}
@@ -114,11 +116,6 @@ class RID_Alloc : public RID_AllocBase {
 		uint32_t free_chunk = free_index / elements_in_chunk;
 		uint32_t free_element = free_index % elements_in_chunk;
 
-		if (p_initializer) {
-			T *ptr = &chunks[free_chunk][free_element];
-			memnew_placement(ptr, T(*p_initializer));
-		}
-
 		uint32_t validator = (uint32_t)(_gen_id() & 0x7FFFFFFF);
 		uint64_t id = validator;
 		id <<= 32;
@@ -126,9 +123,7 @@ class RID_Alloc : public RID_AllocBase {
 
 		validator_chunks[free_chunk][free_element] = validator;
 
-		if (!p_initializer) {
-			validator_chunks[free_chunk][free_element] |= 0x80000000; //mark uninitialized bit
-		}
+		validator_chunks[free_chunk][free_element] |= 0x80000000; //mark uninitialized bit
 
 		alloc_count++;
 
@@ -140,16 +135,23 @@ class RID_Alloc : public RID_AllocBase {
 	}
 
 public:
+	RID make_rid() {
+		RID rid = _allocate_rid();
+		initialize_rid(rid);
+		return rid;
+	}
 	RID make_rid(const T &p_value) {
-		return _allocate_rid(&p_value);
+		RID rid = _allocate_rid();
+		initialize_rid(rid, p_value);
+		return rid;
 	}
 
 	//allocate but don't initialize, use initialize_rid afterwards
 	RID allocate_rid() {
-		return _allocate_rid(nullptr);
+		return _allocate_rid();
 	}
 
-	_FORCE_INLINE_ T *getornull(const RID &p_rid, bool p_initialize = false) {
+	_FORCE_INLINE_ T *get_or_null(const RID &p_rid, bool p_initialize = false) {
 		if (p_rid == RID()) {
 			return nullptr;
 		}
@@ -193,7 +195,7 @@ public:
 			if (THREAD_SAFE) {
 				spin_lock.unlock();
 			}
-			if (validator_chunks[idx_chunk][idx_element] & 0x80000000) {
+			if ((validator_chunks[idx_chunk][idx_element] & 0x80000000) && validator_chunks[idx_chunk][idx_element] != 0xFFFFFFFF) {
 				ERR_FAIL_V_MSG(nullptr, "Attempting to use an uninitialized RID");
 			}
 			return nullptr;
@@ -207,13 +209,18 @@ public:
 
 		return ptr;
 	}
+	void initialize_rid(RID p_rid) {
+		T *mem = get_or_null(p_rid, true);
+		ERR_FAIL_COND(!mem);
+		memnew_placement(mem, T);
+	}
 	void initialize_rid(RID p_rid, const T &p_value) {
-		T *mem = getornull(p_rid, true);
+		T *mem = get_or_null(p_rid, true);
 		ERR_FAIL_COND(!mem);
 		memnew_placement(mem, T(p_value));
 	}
 
-	_FORCE_INLINE_ bool owns(const RID &p_rid) {
+	_FORCE_INLINE_ bool owns(const RID &p_rid) const {
 		if (THREAD_SAFE) {
 			spin_lock.lock();
 		}
@@ -285,36 +292,7 @@ public:
 	_FORCE_INLINE_ uint32_t get_rid_count() const {
 		return alloc_count;
 	}
-
-	_FORCE_INLINE_ T *get_ptr_by_index(uint32_t p_index) {
-		ERR_FAIL_UNSIGNED_INDEX_V(p_index, alloc_count, nullptr);
-		if (THREAD_SAFE) {
-			spin_lock.lock();
-		}
-		uint64_t idx = free_list_chunks[p_index / elements_in_chunk][p_index % elements_in_chunk];
-		T *ptr = &chunks[idx / elements_in_chunk][idx % elements_in_chunk];
-		if (THREAD_SAFE) {
-			spin_lock.unlock();
-		}
-		return ptr;
-	}
-
-	_FORCE_INLINE_ RID get_rid_by_index(uint32_t p_index) {
-		ERR_FAIL_INDEX_V(p_index, alloc_count, RID());
-		if (THREAD_SAFE) {
-			spin_lock.lock();
-		}
-		uint64_t idx = free_list_chunks[p_index / elements_in_chunk][p_index % elements_in_chunk];
-		uint64_t validator = validator_chunks[idx / elements_in_chunk][idx % elements_in_chunk];
-
-		RID rid = _make_from_id((validator << 32) | idx);
-		if (THREAD_SAFE) {
-			spin_lock.unlock();
-		}
-		return rid;
-	}
-
-	void get_owned_list(List<RID> *p_owned) {
+	void get_owned_list(List<RID> *p_owned) const {
 		if (THREAD_SAFE) {
 			spin_lock.lock();
 		}
@@ -329,28 +307,42 @@ public:
 		}
 	}
 
+	//used for fast iteration in the elements or RIDs
+	void fill_owned_buffer(RID *p_rid_buffer) const {
+		if (THREAD_SAFE) {
+			spin_lock.lock();
+		}
+		uint32_t idx = 0;
+		for (size_t i = 0; i < max_alloc; i++) {
+			uint64_t validator = validator_chunks[i / elements_in_chunk][i % elements_in_chunk];
+			if (validator != 0xFFFFFFFF) {
+				p_rid_buffer[idx] = _make_from_id((validator << 32) | i);
+				idx++;
+			}
+		}
+		if (THREAD_SAFE) {
+			spin_lock.unlock();
+		}
+	}
+
 	void set_description(const char *p_descrption) {
 		description = p_descrption;
 	}
 
-	RID_Alloc(uint32_t p_target_chunk_byte_size = 4096) {
+	RID_Alloc(uint32_t p_target_chunk_byte_size = 65536) {
 		elements_in_chunk = sizeof(T) > p_target_chunk_byte_size ? 1 : (p_target_chunk_byte_size / sizeof(T));
 	}
 
 	~RID_Alloc() {
 		if (alloc_count) {
-			if (description) {
-				print_error("ERROR: " + itos(alloc_count) + " RID allocations of type '" + description + "' were leaked at exit.");
-			} else {
-#ifdef NO_SAFE_CAST
-				print_error("ERROR: " + itos(alloc_count) + " RID allocations of type 'unknown' were leaked at exit.");
-#else
-				print_error("ERROR: " + itos(alloc_count) + " RID allocations of type '" + typeid(T).name() + "' were leaked at exit.");
-#endif
-			}
+			print_error(vformat("ERROR: %d RID allocations of type '%s' were leaked at exit.",
+					alloc_count, description ? description : typeid(T).name()));
 
 			for (size_t i = 0; i < max_alloc; i++) {
 				uint64_t validator = validator_chunks[i / elements_in_chunk][i % elements_in_chunk];
+				if (validator & 0x80000000) {
+					continue; //uninitialized
+				}
 				if (validator != 0xFFFFFFFF) {
 					chunks[i / elements_in_chunk][i % elements_in_chunk].~T();
 				}
@@ -389,8 +381,8 @@ public:
 		alloc.initialize_rid(p_rid, p_ptr);
 	}
 
-	_FORCE_INLINE_ T *getornull(const RID &p_rid) {
-		T **ptr = alloc.getornull(p_rid);
+	_FORCE_INLINE_ T *get_or_null(const RID &p_rid) {
+		T **ptr = alloc.get_or_null(p_rid);
 		if (unlikely(!ptr)) {
 			return nullptr;
 		}
@@ -398,12 +390,12 @@ public:
 	}
 
 	_FORCE_INLINE_ void replace(const RID &p_rid, T *p_new_ptr) {
-		T **ptr = alloc.getornull(p_rid);
+		T **ptr = alloc.get_or_null(p_rid);
 		ERR_FAIL_COND(!ptr);
 		*ptr = p_new_ptr;
 	}
 
-	_FORCE_INLINE_ bool owns(const RID &p_rid) {
+	_FORCE_INLINE_ bool owns(const RID &p_rid) const {
 		return alloc.owns(p_rid);
 	}
 
@@ -415,23 +407,19 @@ public:
 		return alloc.get_rid_count();
 	}
 
-	_FORCE_INLINE_ RID get_rid_by_index(uint32_t p_index) {
-		return alloc.get_rid_by_index(p_index);
-	}
-
-	_FORCE_INLINE_ T *get_ptr_by_index(uint32_t p_index) {
-		return *alloc.get_ptr_by_index(p_index);
-	}
-
-	_FORCE_INLINE_ void get_owned_list(List<RID> *p_owned) {
+	_FORCE_INLINE_ void get_owned_list(List<RID> *p_owned) const {
 		return alloc.get_owned_list(p_owned);
+	}
+
+	void fill_owned_buffer(RID *p_rid_buffer) const {
+		alloc.fill_owned_buffer(p_rid_buffer);
 	}
 
 	void set_description(const char *p_descrption) {
 		alloc.set_description(p_descrption);
 	}
 
-	RID_PtrOwner(uint32_t p_target_chunk_byte_size = 4096) :
+	RID_PtrOwner(uint32_t p_target_chunk_byte_size = 65536) :
 			alloc(p_target_chunk_byte_size) {}
 };
 
@@ -440,6 +428,9 @@ class RID_Owner {
 	RID_Alloc<T, THREAD_SAFE> alloc;
 
 public:
+	_FORCE_INLINE_ RID make_rid() {
+		return alloc.make_rid();
+	}
 	_FORCE_INLINE_ RID make_rid(const T &p_ptr) {
 		return alloc.make_rid(p_ptr);
 	}
@@ -448,15 +439,19 @@ public:
 		return alloc.allocate_rid();
 	}
 
+	_FORCE_INLINE_ void initialize_rid(RID p_rid) {
+		alloc.initialize_rid(p_rid);
+	}
+
 	_FORCE_INLINE_ void initialize_rid(RID p_rid, const T &p_ptr) {
 		alloc.initialize_rid(p_rid, p_ptr);
 	}
 
-	_FORCE_INLINE_ T *getornull(const RID &p_rid) {
-		return alloc.getornull(p_rid);
+	_FORCE_INLINE_ T *get_or_null(const RID &p_rid) {
+		return alloc.get_or_null(p_rid);
 	}
 
-	_FORCE_INLINE_ bool owns(const RID &p_rid) {
+	_FORCE_INLINE_ bool owns(const RID &p_rid) const {
 		return alloc.owns(p_rid);
 	}
 
@@ -468,22 +463,17 @@ public:
 		return alloc.get_rid_count();
 	}
 
-	_FORCE_INLINE_ RID get_rid_by_index(uint32_t p_index) {
-		return alloc.get_rid_by_index(p_index);
-	}
-
-	_FORCE_INLINE_ T *get_ptr_by_index(uint32_t p_index) {
-		return alloc.get_ptr_by_index(p_index);
-	}
-
-	_FORCE_INLINE_ void get_owned_list(List<RID> *p_owned) {
+	_FORCE_INLINE_ void get_owned_list(List<RID> *p_owned) const {
 		return alloc.get_owned_list(p_owned);
+	}
+	void fill_owned_buffer(RID *p_rid_buffer) const {
+		alloc.fill_owned_buffer(p_rid_buffer);
 	}
 
 	void set_description(const char *p_descrption) {
 		alloc.set_description(p_descrption);
 	}
-	RID_Owner(uint32_t p_target_chunk_byte_size = 4096) :
+	RID_Owner(uint32_t p_target_chunk_byte_size = 65536) :
 			alloc(p_target_chunk_byte_size) {}
 };
 

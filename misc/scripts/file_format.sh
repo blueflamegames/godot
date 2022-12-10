@@ -20,21 +20,30 @@ while IFS= read -rd '' f; do
         continue
     elif [[ "$f" == *"sln" ]]; then
         continue
+    elif [[ "$f" == *".bat" ]]; then
+        continue
+    elif [[ "$f" == *".out" ]]; then
+        # GDScript integration testing files.
+        continue
     elif [[ "$f" == *"patch" ]]; then
         continue
     elif [[ "$f" == *"pot" ]]; then
         continue
     elif [[ "$f" == *"po" ]]; then
         continue
-    elif [[ "$f" == "thirdparty"* ]]; then
+    elif [[ "$f" == "thirdparty/"* ]]; then
+        continue
+    elif [[ "$f" == *"/thirdparty/"* ]]; then
         continue
     elif [[ "$f" == "platform/android/java/lib/src/com/google"* ]]; then
         continue
     elif [[ "$f" == *"-so_wrap."* ]]; then
         continue
+    elif [[ "$f" == *".test.txt" ]]; then
+        continue
     fi
     # Ensure that files are UTF-8 formatted.
-    recode UTF-8 "$f" 2> /dev/null
+    isutf8 "$f" >> utf8-validation.txt 2>&1
     # Ensure that files have LF line endings and do not contain a BOM.
     dos2unix "$f" 2> /dev/null
     # Remove trailing space characters and ensures that files end
@@ -42,19 +51,30 @@ while IFS= read -rd '' f; do
     perl -i -ple 's/\s*$//g' "$f"
 done
 
-git diff > patch.patch
+diff=$(git diff --color)
 
-# If no patch has been generated all is OK, clean up, and exit.
-if [ ! -s patch.patch ] ; then
+# If no UTF-8 violations were collected and no diff has been
+# generated all is OK, clean up, and exit.
+if [ ! -s utf8-validation.txt ] && [ -z "$diff" ] ; then
     printf "Files in this commit comply with the formatting rules.\n"
-    rm -f patch.patch
+    rm -f utf8-violations.txt
     exit 0
 fi
 
-# A patch has been created, notify the user, clean up, and exit.
-printf "\n*** The following differences were found between the code "
-printf "and the formatting rules:\n\n"
-cat patch.patch
+# Violations detected, notify the user, clean up, and exit.
+if [ -s utf8-validation.txt ]
+then
+    printf "\n*** The following files contain invalid UTF-8 character sequences:\n\n"
+    cat utf8-validation.txt
+    rm -f utf8-validation.txt
+fi
+
+if [ ! -z "$diff" ]
+then
+    printf "\n*** The following differences were found between the code "
+    printf "and the formatting rules:\n\n"
+    echo "$diff"
+fi
+
 printf "\n*** Aborting, please fix your commit(s) with 'git commit --amend' or 'git rebase -i <hash>'\n"
-rm -f patch.patch
 exit 1

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -29,13 +29,14 @@
 /*************************************************************************/
 
 #include "container.h"
+
 #include "core/object/message_queue.h"
 #include "scene/scene_string_names.h"
 
 void Container::_child_minsize_changed() {
 	//Size2 ms = get_combined_minimum_size();
 	//if (ms.width > get_size().width || ms.height > get_size().height) {
-	minimum_size_changed();
+	update_minimum_size();
 	queue_sort();
 }
 
@@ -47,11 +48,11 @@ void Container::add_child_notify(Node *p_child) {
 		return;
 	}
 
-	control->connect("size_flags_changed", callable_mp(this, &Container::queue_sort));
-	control->connect("minimum_size_changed", callable_mp(this, &Container::_child_minsize_changed));
-	control->connect("visibility_changed", callable_mp(this, &Container::_child_minsize_changed));
+	control->connect(SNAME("size_flags_changed"), callable_mp(this, &Container::queue_sort));
+	control->connect(SNAME("minimum_size_changed"), callable_mp(this, &Container::_child_minsize_changed));
+	control->connect(SNAME("visibility_changed"), callable_mp(this, &Container::_child_minsize_changed));
 
-	minimum_size_changed();
+	update_minimum_size();
 	queue_sort();
 }
 
@@ -62,7 +63,7 @@ void Container::move_child_notify(Node *p_child) {
 		return;
 	}
 
-	minimum_size_changed();
+	update_minimum_size();
 	queue_sort();
 }
 
@@ -78,7 +79,7 @@ void Container::remove_child_notify(Node *p_child) {
 	control->disconnect("minimum_size_changed", callable_mp(this, &Container::_child_minsize_changed));
 	control->disconnect("visibility_changed", callable_mp(this, &Container::_child_minsize_changed));
 
-	minimum_size_changed();
+	update_minimum_size();
 	queue_sort();
 }
 
@@ -86,6 +87,9 @@ void Container::_sort_children() {
 	if (!is_inside_tree()) {
 		return;
 	}
+
+	notification(NOTIFICATION_PRE_SORT_CHILDREN);
+	emit_signal(SceneStringNames::get_singleton()->pre_sort_children);
 
 	notification(NOTIFICATION_SORT_CHILDREN);
 	emit_signal(SceneStringNames::get_singleton()->sort_children);
@@ -96,17 +100,18 @@ void Container::fit_child_in_rect(Control *p_child, const Rect2 &p_rect) {
 	ERR_FAIL_COND(!p_child);
 	ERR_FAIL_COND(p_child->get_parent() != this);
 
+	bool rtl = is_layout_rtl();
 	Size2 minsize = p_child->get_combined_minimum_size();
 	Rect2 r = p_rect;
 
 	if (!(p_child->get_h_size_flags() & SIZE_FILL)) {
 		r.size.x = minsize.width;
 		if (p_child->get_h_size_flags() & SIZE_SHRINK_END) {
-			r.position.x += p_rect.size.width - minsize.width;
+			r.position.x += rtl ? 0 : (p_rect.size.width - minsize.width);
 		} else if (p_child->get_h_size_flags() & SIZE_SHRINK_CENTER) {
 			r.position.x += Math::floor((p_rect.size.x - minsize.width) / 2);
 		} else {
-			r.position.x += 0;
+			r.position.x += rtl ? (p_rect.size.width - minsize.width) : 0;
 		}
 	}
 
@@ -139,18 +144,46 @@ void Container::queue_sort() {
 	pending_sort = true;
 }
 
+Vector<int> Container::get_allowed_size_flags_horizontal() const {
+	Vector<int> flags;
+	if (GDVIRTUAL_CALL(_get_allowed_size_flags_horizontal, flags)) {
+		return flags;
+	}
+
+	flags.append(SIZE_FILL);
+	flags.append(SIZE_EXPAND);
+	flags.append(SIZE_SHRINK_BEGIN);
+	flags.append(SIZE_SHRINK_CENTER);
+	flags.append(SIZE_SHRINK_END);
+	return flags;
+}
+
+Vector<int> Container::get_allowed_size_flags_vertical() const {
+	Vector<int> flags;
+	if (GDVIRTUAL_CALL(_get_allowed_size_flags_vertical, flags)) {
+		return flags;
+	}
+
+	flags.append(SIZE_FILL);
+	flags.append(SIZE_EXPAND);
+	flags.append(SIZE_SHRINK_BEGIN);
+	flags.append(SIZE_SHRINK_CENTER);
+	flags.append(SIZE_SHRINK_END);
+	return flags;
+}
+
 void Container::_notification(int p_what) {
 	switch (p_what) {
 		case NOTIFICATION_ENTER_TREE: {
 			pending_sort = false;
 			queue_sort();
 		} break;
-		case NOTIFICATION_RESIZED: {
-			queue_sort();
-		} break;
+
+		case NOTIFICATION_RESIZED:
 		case NOTIFICATION_THEME_CHANGED: {
 			queue_sort();
 		} break;
+
 		case NOTIFICATION_VISIBILITY_CHANGED: {
 			if (is_visible_in_tree()) {
 				queue_sort();
@@ -159,23 +192,27 @@ void Container::_notification(int p_what) {
 	}
 }
 
-String Container::get_configuration_warning() const {
-	String warning = Control::get_configuration_warning();
+PackedStringArray Container::get_configuration_warnings() const {
+	PackedStringArray warnings = Control::get_configuration_warnings();
 
 	if (get_class() == "Container" && get_script().is_null()) {
-		if (!warning.is_empty()) {
-			warning += "\n\n";
-		}
-		warning += TTR("Container by itself serves no purpose unless a script configures its children placement behavior.\nIf you don't intend to add a script, use a plain Control node instead.");
+		warnings.push_back(RTR("Container by itself serves no purpose unless a script configures its children placement behavior.\nIf you don't intend to add a script, use a plain Control node instead."));
 	}
-	return warning;
+
+	return warnings;
 }
 
 void Container::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("queue_sort"), &Container::queue_sort);
 	ClassDB::bind_method(D_METHOD("fit_child_in_rect", "child", "rect"), &Container::fit_child_in_rect);
 
+	GDVIRTUAL_BIND(_get_allowed_size_flags_horizontal);
+	GDVIRTUAL_BIND(_get_allowed_size_flags_vertical);
+
+	BIND_CONSTANT(NOTIFICATION_PRE_SORT_CHILDREN);
 	BIND_CONSTANT(NOTIFICATION_SORT_CHILDREN);
+
+	ADD_SIGNAL(MethodInfo("pre_sort_children"));
 	ADD_SIGNAL(MethodInfo("sort_children"));
 }
 

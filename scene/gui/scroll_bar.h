@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -51,6 +51,9 @@ class ScrollBar : public Range {
 
 	HighlightStatus highlight = HIGHLIGHT_NONE;
 
+	bool incr_active = false;
+	bool decr_active = false;
+
 	struct Drag {
 		bool active = false;
 		float pos_at_click = 0.0;
@@ -69,7 +72,7 @@ class ScrollBar : public Range {
 	NodePath drag_node_path;
 	bool drag_node_enabled = true;
 
-	Vector2 drag_node_speed = Vector2();
+	Vector2 drag_node_speed;
 	Vector2 drag_node_accum;
 	Vector2 drag_node_from;
 	Vector2 last_drag_node_accum;
@@ -83,14 +86,31 @@ class ScrollBar : public Range {
 	double target_scroll = 0.0;
 	bool smooth_scroll_enabled = false;
 
+	struct ThemeCache {
+		Ref<StyleBox> scroll_style;
+		Ref<StyleBox> scroll_focus_style;
+		Ref<StyleBox> scroll_offset_style;
+		Ref<StyleBox> grabber_style;
+		Ref<StyleBox> grabber_hl_style;
+		Ref<StyleBox> grabber_pressed_style;
+
+		Ref<Texture2D> increment_icon;
+		Ref<Texture2D> increment_hl_icon;
+		Ref<Texture2D> increment_pressed_icon;
+		Ref<Texture2D> decrement_icon;
+		Ref<Texture2D> decrement_hl_icon;
+		Ref<Texture2D> decrement_pressed_icon;
+	} theme_cache;
+
 	void _drag_node_exit();
 	void _drag_node_input(const Ref<InputEvent> &p_input);
 
-	void _gui_input(Ref<InputEvent> p_event);
+	virtual void gui_input(const Ref<InputEvent> &p_event) override;
 
 protected:
-	void _notification(int p_what);
+	virtual void _update_theme_item_cache() override;
 
+	void _notification(int p_what);
 	static void _bind_methods();
 
 public:
@@ -125,4 +145,4 @@ public:
 			ScrollBar(VERTICAL) { set_h_size_flags(0); }
 };
 
-#endif
+#endif // SCROLL_BAR_H

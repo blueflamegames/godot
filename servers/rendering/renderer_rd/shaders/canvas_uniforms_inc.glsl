@@ -5,12 +5,10 @@
 
 #define SDF_MAX_LENGTH 16384.0
 
-#define FLAGS_INSTANCING_STRIDE_MASK 0xF
-#define FLAGS_INSTANCING_ENABLED (1 << 4)
-#define FLAGS_INSTANCING_HAS_COLORS (1 << 5)
-#define FLAGS_INSTANCING_COLOR_8BIT (1 << 6)
-#define FLAGS_INSTANCING_HAS_CUSTOM_DATA (1 << 7)
-#define FLAGS_INSTANCING_CUSTOM_DATA_8_BIT (1 << 8)
+//1 means enabled, 2+ means trails in use
+#define FLAGS_INSTANCING_MASK 0x7F
+#define FLAGS_INSTANCING_HAS_COLORS (1 << 7)
+#define FLAGS_INSTANCING_HAS_CUSTOM_DATA (1 << 8)
 
 #define FLAGS_CLIP_RECT_UV (1 << 9)
 #define FLAGS_TRANSPOSE_RECT (1 << 10)
@@ -25,6 +23,9 @@
 
 #define FLAGS_DEFAULT_NORMAL_MAP_USED (1 << 26)
 #define FLAGS_DEFAULT_SPECULAR_MAP_USED (1 << 27)
+
+#define FLAGS_USE_MSDF (1 << 28)
+#define FLAGS_USE_LCD (1 << 29)
 
 #define SAMPLER_NEAREST_CLAMP 0
 #define SAMPLER_LINEAR_CLAMP 1
@@ -41,7 +42,7 @@
 
 // Push Constant
 
-layout(push_constant, binding = 0, std430) uniform DrawData {
+layout(push_constant, std430) uniform DrawData {
 	vec2 world_x;
 	vec2 world_y;
 	vec2 world_ofs;
@@ -138,10 +139,10 @@ layout(set = 0, binding = 7) uniform texture2D sdf_texture;
 
 layout(set = 0, binding = 8) uniform sampler material_samplers[12];
 
-layout(set = 0, binding = 9, std430) restrict readonly buffer GlobalVariableData {
+layout(set = 0, binding = 9, std430) restrict readonly buffer GlobalShaderUniformData {
 	vec4 data[];
 }
-global_variables;
+global_shader_uniforms;
 
 /* SET1: Is reserved for the material */
 

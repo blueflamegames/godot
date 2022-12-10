@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -33,6 +33,8 @@
 
 #include "core/typedefs.h"
 
+#include <climits>
+
 class Variant;
 class ArrayPrivate;
 class Object;
@@ -44,10 +46,7 @@ class Array {
 	void _ref(const Array &p_from) const;
 	void _unref() const;
 
-	inline int _clamp_slice_index(int p_index) const;
-
 protected:
-	Array(const Array &p_base, uint32_t p_type, const StringName &p_class_name, const Variant &p_script);
 	bool _assign(const Array &p_array);
 
 public:
@@ -63,8 +62,10 @@ public:
 
 	bool operator==(const Array &p_array) const;
 	bool operator!=(const Array &p_array) const;
+	bool recursive_equal(const Array &p_array, int recursion_count) const;
 
 	uint32_t hash() const;
+	uint32_t recursive_hash(int recursion_count) const;
 	void operator=(const Array &p_array);
 
 	void push_back(const Variant &p_value);
@@ -72,22 +73,23 @@ public:
 	void append_array(const Array &p_array);
 	Error resize(int p_new_size);
 
-	void insert(int p_pos, const Variant &p_value);
-	void remove(int p_pos);
+	Error insert(int p_pos, const Variant &p_value);
+	void remove_at(int p_pos);
+	void fill(const Variant &p_value);
 
 	Variant front() const;
 	Variant back() const;
+	Variant pick_random() const;
 
 	void sort();
-	void sort_custom(Callable p_callable);
+	void sort_custom(const Callable &p_callable);
 	void shuffle();
 	int bsearch(const Variant &p_value, bool p_before = true);
-	int bsearch_custom(const Variant &p_value, Callable p_callable, bool p_before = true);
+	int bsearch_custom(const Variant &p_value, const Callable &p_callable, bool p_before = true);
 	void reverse();
 
 	int find(const Variant &p_value, int p_from = 0) const;
 	int rfind(const Variant &p_value, int p_from = -1) const;
-	int find_last(const Variant &p_value) const;
 	int count(const Variant &p_value) const;
 	bool has(const Variant &p_value) const;
 
@@ -96,10 +98,17 @@ public:
 	void push_front(const Variant &p_value);
 	Variant pop_back();
 	Variant pop_front();
+	Variant pop_at(int p_pos);
 
 	Array duplicate(bool p_deep = false) const;
+	Array recursive_duplicate(bool p_deep, int recursion_count) const;
 
-	Array slice(int p_begin, int p_end, int p_step = 1, bool p_deep = false) const;
+	Array slice(int p_begin, int p_end = INT_MAX, int p_step = 1, bool p_deep = false) const;
+	Array filter(const Callable &p_callable) const;
+	Array map(const Callable &p_callable) const;
+	Variant reduce(const Callable &p_callable, const Variant &p_accum) const;
+	bool any(const Callable &p_callable) const;
+	bool all(const Callable &p_callable) const;
 
 	bool operator<(const Array &p_array) const;
 	bool operator<=(const Array &p_array) const;
@@ -117,6 +126,11 @@ public:
 	uint32_t get_typed_builtin() const;
 	StringName get_typed_class_name() const;
 	Variant get_typed_script() const;
+
+	void set_read_only(bool p_enable);
+	bool is_read_only() const;
+
+	Array(const Array &p_base, uint32_t p_type, const StringName &p_class_name, const Variant &p_script);
 	Array(const Array &p_from);
 	Array();
 	~Array();

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -63,7 +63,7 @@ static void term_thread() {
 void init_thread_jandroid(JavaVM *p_jvm, JNIEnv *p_env) {
 	java_vm = p_jvm;
 	env = p_env;
-	Thread::_set_platform_funcs(nullptr, nullptr, &init_thread, &term_thread);
+	Thread::_set_platform_functions({ .init = init_thread, .term = &term_thread });
 }
 
 void setup_android_thread() {

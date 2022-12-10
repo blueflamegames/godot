@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -32,13 +32,35 @@
 
 #include "image_loader_svg.h"
 
-static ImageLoaderSVG *image_loader_svg = nullptr;
+#include <thorvg.h>
 
-void register_svg_types() {
-	image_loader_svg = memnew(ImageLoaderSVG);
+static Ref<ImageLoaderSVG> image_loader_svg;
+
+void initialize_svg_module(ModuleInitializationLevel p_level) {
+	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
+		return;
+	}
+
+	tvg::CanvasEngine tvgEngine = tvg::CanvasEngine::Sw;
+	if (tvg::Initializer::init(tvgEngine, 1) != tvg::Result::Success) {
+		return;
+	}
+
+	image_loader_svg.instantiate();
 	ImageLoader::add_image_format_loader(image_loader_svg);
 }
 
-void unregister_svg_types() {
-	memdelete(image_loader_svg);
+void uninitialize_svg_module(ModuleInitializationLevel p_level) {
+	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
+		return;
+	}
+
+	if (image_loader_svg.is_null()) {
+		// It failed to initialize so it was not added.
+		return;
+	}
+
+	ImageLoader::remove_image_format_loader(image_loader_svg);
+	image_loader_svg.unref();
+	tvg::Initializer::term(tvg::CanvasEngine::Sw);
 }

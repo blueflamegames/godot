@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -33,19 +33,19 @@
 #include "core/os/os.h"
 #include "core/string/print_string.h"
 
+#include <zlib.h> // Should come before including tinyexr.
+
 #include "thirdparty/tinyexr/tinyexr.h"
 
-Error ImageLoaderTinyEXR::load_image(Ref<Image> p_image, FileAccess *f, bool p_force_linear, float p_scale) {
+Error ImageLoaderTinyEXR::load_image(Ref<Image> p_image, Ref<FileAccess> f, BitField<ImageFormatLoader::LoaderFlags> p_flags, float p_scale) {
 	Vector<uint8_t> src_image;
-	int src_image_len = f->get_len();
+	uint64_t src_image_len = f->get_length();
 	ERR_FAIL_COND_V(src_image_len == 0, ERR_FILE_CORRUPT);
 	src_image.resize(src_image_len);
 
 	uint8_t *w = src_image.ptrw();
 
 	f->get_buffer(&w[0], src_image_len);
-
-	f->close();
 
 	// Re-implementation of tinyexr's LoadEXRFromMemory using Godot types to store the Image data
 	// and Godot's error codes.
@@ -229,8 +229,8 @@ Error ImageLoaderTinyEXR::load_image(Ref<Image> p_image, FileAccess *f, bool p_f
 							color.a = *a_channel++;
 						}
 
-						if (p_force_linear) {
-							color = color.to_linear();
+						if (p_flags & FLAG_FORCE_LINEAR) {
+							color = color.srgb_to_linear();
 						}
 
 						*row_w++ = Math::make_half_float(color.r);
@@ -260,8 +260,8 @@ Error ImageLoaderTinyEXR::load_image(Ref<Image> p_image, FileAccess *f, bool p_f
 							color.a = *a_channel++;
 						}
 
-						if (p_force_linear) {
-							color = color.to_linear();
+						if (p_flags & FLAG_FORCE_LINEAR) {
+							color = color.srgb_to_linear();
 						}
 
 						*row_w++ = color.r;
@@ -280,7 +280,7 @@ Error ImageLoaderTinyEXR::load_image(Ref<Image> p_image, FileAccess *f, bool p_f
 		}
 	}
 
-	p_image->create(exr_image.width, exr_image.height, false, format, imgdata);
+	p_image->set_data(exr_image.width, exr_image.height, false, format, imgdata);
 
 	FreeEXRHeader(&exr_header);
 	FreeEXRImage(&exr_image);

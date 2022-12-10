@@ -6,12 +6,14 @@
     <string name="text_button_resume_cellular">Resume download</string>
     <string name="text_button_wifi_settings">Wi-Fi settings</string>
     <string name="text_verifying_download">Verifying Download</string>
-    <string name="text_validation_complete">XAPK File Validation Complete.  Select OK to exit.</string>
+    <string name="text_validation_complete">XAPK File Validation Complete. Select OK to exit.</string>
     <string name="text_validation_failed">XAPK File Validation Failed.</string>
     <string name="text_button_pause">Pause Download</string>
     <string name="text_button_resume">Resume Download</string>
     <string name="text_button_cancel">Cancel</string>
     <string name="text_button_cancel_verify">Cancel Verification</string>
+    <string name="text_error_title">Error!</string>
+    <string name="error_engine_setup_message">Unable to setup the Godot Engine! Aborting…</string>
 
     <!-- APK Expansion Strings -->
 

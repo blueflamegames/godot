@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -28,9 +28,10 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 
-#ifndef RENDERING_SERVER_CANVAS_CULL_H
-#define RENDERING_SERVER_CANVAS_CULL_H
+#ifndef RENDERER_CANVAS_CULL_H
+#define RENDERER_CANVAS_CULL_H
 
+#include "core/templates/paged_allocator.h"
 #include "renderer_compositor.h"
 #include "renderer_viewport.h"
 
@@ -52,8 +53,24 @@ public:
 		Transform2D ysort_xform;
 		Vector2 ysort_pos;
 		int ysort_index;
+		int ysort_parent_abs_z_index; // Absolute Z index of parent. Only populated and used when y-sorting.
+		uint32_t visibility_layer = 0xffffffff;
 
 		Vector<Item *> child_items;
+
+		struct VisibilityNotifierData {
+			Rect2 area;
+			Callable enter_callable;
+			Callable exit_callable;
+			bool just_visible = false;
+			uint64_t visible_in_frame = 0;
+			SelfList<VisibilityNotifierData> visible_element;
+			VisibilityNotifierData() :
+					visible_element(this) {
+			}
+		};
+
+		VisibilityNotifierData *visibility_notifier = nullptr;
 
 		Item() {
 			children_order_dirty = true;
@@ -69,6 +86,7 @@ public:
 			ysort_xform = Transform2D();
 			ysort_pos = Vector2();
 			ysort_index = 0;
+			ysort_parent_abs_z_index = 0;
 		}
 	};
 
@@ -93,7 +111,7 @@ public:
 		Rect2 aabb;
 		RS::CanvasOccluderPolygonCullMode cull_mode;
 		RID occluder;
-		Set<RendererCanvasRender::LightOccluderInstance *> owners;
+		HashSet<RendererCanvasRender::LightOccluderInstance *> owners;
 
 		LightOccluderPolygon() {
 			active = false;
@@ -101,24 +119,24 @@ public:
 		}
 	};
 
-	RID_PtrOwner<LightOccluderPolygon, true> canvas_light_occluder_polygon_owner;
+	RID_Owner<LightOccluderPolygon, true> canvas_light_occluder_polygon_owner;
 
-	RID_PtrOwner<RendererCanvasRender::LightOccluderInstance, true> canvas_light_occluder_owner;
+	RID_Owner<RendererCanvasRender::LightOccluderInstance, true> canvas_light_occluder_owner;
 
 	struct Canvas : public RendererViewport::CanvasBase {
-		Set<RID> viewports;
+		HashSet<RID> viewports;
 		struct ChildItem {
 			Point2 mirror;
-			Item *item;
+			Item *item = nullptr;
 			bool operator<(const ChildItem &p_item) const {
 				return item->index < p_item.item->index;
 			}
 		};
 
-		Set<RendererCanvasRender::Light *> lights;
-		Set<RendererCanvasRender::Light *> directional_lights;
+		HashSet<RendererCanvasRender::Light *> lights;
+		HashSet<RendererCanvasRender::Light *> directional_lights;
 
-		Set<RendererCanvasRender::LightOccluderInstance *> occluders;
+		HashSet<RendererCanvasRender::LightOccluderInstance *> occluders;
 
 		bool children_order_dirty;
 		Vector<ChildItem> child_items;
@@ -137,7 +155,7 @@ public:
 		void erase_item(Item *p_item) {
 			int idx = find_item(p_item);
 			if (idx >= 0) {
-				child_items.remove(idx);
+				child_items.remove_at(idx);
 			}
 		}
 
@@ -148,23 +166,28 @@ public:
 		}
 	};
 
-	mutable RID_PtrOwner<Canvas, true> canvas_owner;
-	RID_PtrOwner<Item, true> canvas_item_owner;
-	RID_PtrOwner<RendererCanvasRender::Light, true> canvas_light_owner;
+	mutable RID_Owner<Canvas, true> canvas_owner;
+	RID_Owner<Item, true> canvas_item_owner;
+	RID_Owner<RendererCanvasRender::Light, true> canvas_light_owner;
 
 	bool disable_scale;
 	bool sdf_used = false;
 	bool snapping_2d_transforms_to_pixel = false;
 
+	PagedAllocator<Item::VisibilityNotifierData> visibility_notifier_allocator;
+	SelfList<Item::VisibilityNotifierData>::List visibility_notifier_list;
+
+	_FORCE_INLINE_ void _attach_canvas_item_for_draw(Item *ci, Item *p_canvas_clip, RendererCanvasRender::Item **r_z_list, RendererCanvasRender::Item **r_z_last_list, const Transform2D &xform, const Rect2 &p_clip_rect, Rect2 global_rect, const Color &modulate, int p_z, RendererCanvasCull::Item *p_material_owner, bool p_use_canvas_group, RendererCanvasRender::Item *canvas_group_from, const Transform2D &p_xform);
+
 private:
-	void _render_canvas_item_tree(RID p_to_render_target, Canvas::ChildItem *p_child_items, int p_child_item_count, Item *p_canvas_item, const Transform2D &p_transform, const Rect2 &p_clip_rect, const Color &p_modulate, RendererCanvasRender::Light *p_lights, RendererCanvasRender::Light *p_directional_lights, RS::CanvasItemTextureFilter p_default_filter, RS::CanvasItemTextureRepeat p_default_repeat, bool p_snap_2d_vertices_to_pixel);
-	void _cull_canvas_item(Item *p_canvas_item, const Transform2D &p_transform, const Rect2 &p_clip_rect, const Color &p_modulate, int p_z, RendererCanvasRender::Item **z_list, RendererCanvasRender::Item **z_last_list, Item *p_canvas_clip, Item *p_material_owner);
+	void _render_canvas_item_tree(RID p_to_render_target, Canvas::ChildItem *p_child_items, int p_child_item_count, Item *p_canvas_item, const Transform2D &p_transform, const Rect2 &p_clip_rect, const Color &p_modulate, RendererCanvasRender::Light *p_lights, RendererCanvasRender::Light *p_directional_lights, RS::CanvasItemTextureFilter p_default_filter, RS::CanvasItemTextureRepeat p_default_repeat, bool p_snap_2d_vertices_to_pixel, uint32_t canvas_cull_mask);
+	void _cull_canvas_item(Item *p_canvas_item, const Transform2D &p_transform, const Rect2 &p_clip_rect, const Color &p_modulate, int p_z, RendererCanvasRender::Item **r_z_list, RendererCanvasRender::Item **r_z_last_list, Item *p_canvas_clip, Item *p_material_owner, bool allow_y_sort, uint32_t canvas_cull_mask);
 
 	RendererCanvasRender::Item **z_list;
 	RendererCanvasRender::Item **z_last_list;
 
 public:
-	void render_canvas(RID p_render_target, Canvas *p_canvas, const Transform2D &p_transform, RendererCanvasRender::Light *p_lights, RendererCanvasRender::Light *p_directional_lights, const Rect2 &p_clip_rect, RS::CanvasItemTextureFilter p_default_filter, RS::CanvasItemTextureRepeat p_default_repeat, bool p_snap_2d_transforms_to_pixel, bool p_snap_2d_vertices_to_pixel);
+	void render_canvas(RID p_render_target, Canvas *p_canvas, const Transform2D &p_transform, RendererCanvasRender::Light *p_lights, RendererCanvasRender::Light *p_directional_lights, const Rect2 &p_clip_rect, RS::CanvasItemTextureFilter p_default_filter, RS::CanvasItemTextureRepeat p_default_repeat, bool p_snap_2d_transforms_to_pixel, bool p_snap_2d_vertices_to_pixel, uint32_t canvas_cull_mask);
 
 	bool was_sdf_used();
 
@@ -184,6 +207,9 @@ public:
 	void canvas_item_set_visible(RID p_item, bool p_visible);
 	void canvas_item_set_light_mask(RID p_item, int p_mask);
 
+	void canvas_item_set_visibility_layer(RID p_item, uint32_t p_layer);
+	uint32_t canvas_item_get_visibility_layer(RID p_item);
+
 	void canvas_item_set_transform(RID p_item, const Transform2D &p_transform);
 	void canvas_item_set_clip(RID p_item, bool p_clip);
 	void canvas_item_set_distance_field_mode(RID p_item, bool p_enable);
@@ -195,13 +221,15 @@ public:
 
 	void canvas_item_set_update_when_visible(RID p_item, bool p_update);
 
-	void canvas_item_add_line(RID p_item, const Point2 &p_from, const Point2 &p_to, const Color &p_color, float p_width = 1.0);
+	void canvas_item_add_line(RID p_item, const Point2 &p_from, const Point2 &p_to, const Color &p_color, float p_width = 1.0, bool p_antialiased = false);
 	void canvas_item_add_polyline(RID p_item, const Vector<Point2> &p_points, const Vector<Color> &p_colors, float p_width = 1.0, bool p_antialiased = false);
 	void canvas_item_add_multiline(RID p_item, const Vector<Point2> &p_points, const Vector<Color> &p_colors, float p_width = 1.0);
 	void canvas_item_add_rect(RID p_item, const Rect2 &p_rect, const Color &p_color);
 	void canvas_item_add_circle(RID p_item, const Point2 &p_pos, float p_radius, const Color &p_color);
 	void canvas_item_add_texture_rect(RID p_item, const Rect2 &p_rect, RID p_texture, bool p_tile = false, const Color &p_modulate = Color(1, 1, 1), bool p_transpose = false);
 	void canvas_item_add_texture_rect_region(RID p_item, const Rect2 &p_rect, RID p_texture, const Rect2 &p_src_rect, const Color &p_modulate = Color(1, 1, 1), bool p_transpose = false, bool p_clip_uv = false);
+	void canvas_item_add_msdf_texture_rect_region(RID p_item, const Rect2 &p_rect, RID p_texture, const Rect2 &p_src_rect, const Color &p_modulate = Color(1, 1, 1), int p_outline_size = 0, float p_px_range = 1.0);
+	void canvas_item_add_lcd_texture_rect_region(RID p_item, const Rect2 &p_rect, RID p_texture, const Rect2 &p_src_rect, const Color &p_modulate = Color(1, 1, 1));
 	void canvas_item_add_nine_patch(RID p_item, const Rect2 &p_rect, const Rect2 &p_source, RID p_texture, const Vector2 &p_topleft, const Vector2 &p_bottomright, RS::NinePatchAxisMode p_x_axis_mode = RS::NINE_PATCH_STRETCH, RS::NinePatchAxisMode p_y_axis_mode = RS::NINE_PATCH_STRETCH, bool p_draw_center = true, const Color &p_modulate = Color(1, 1, 1));
 	void canvas_item_add_primitive(RID p_item, const Vector<Point2> &p_points, const Vector<Color> &p_colors, const Vector<Point2> &p_uvs, RID p_texture, float p_width = 1.0);
 	void canvas_item_add_polygon(RID p_item, const Vector<Point2> &p_points, const Vector<Color> &p_colors, const Vector<Point2> &p_uvs = Vector<Point2>(), RID p_texture = RID());
@@ -211,6 +239,8 @@ public:
 	void canvas_item_add_particles(RID p_item, RID p_particles, RID p_texture);
 	void canvas_item_add_set_transform(RID p_item, const Transform2D &p_transform);
 	void canvas_item_add_clip_ignore(RID p_item, bool p_ignore);
+	void canvas_item_add_animation_slice(RID p_item, double p_animation_length, double p_slice_begin, double p_slice_end, double p_offset);
+
 	void canvas_item_set_sort_children_by_y(RID p_item, bool p_enable);
 	void canvas_item_set_z_index(RID p_item, int p_z);
 	void canvas_item_set_z_as_relative_to_parent(RID p_item, bool p_enable);
@@ -223,6 +253,8 @@ public:
 	void canvas_item_set_material(RID p_item, RID p_material);
 
 	void canvas_item_set_use_parent_material(RID p_item, bool p_enable);
+
+	void canvas_item_set_visibility_notifier(RID p_item, bool p_enable, const Rect2 &p_area, const Callable &p_enter_callable, const Callable &p_exit_callable);
 
 	void canvas_item_set_canvas_group_mode(RID p_item, RS::CanvasGroupMode p_mode, float p_clear_margin = 5.0, bool p_fit_empty = false, float p_fit_margin = 0.0, bool p_blur_mipmaps = false);
 
@@ -283,9 +315,11 @@ public:
 	void canvas_item_set_default_texture_filter(RID p_item, RS::CanvasItemTextureFilter p_filter);
 	void canvas_item_set_default_texture_repeat(RID p_item, RS::CanvasItemTextureRepeat p_repeat);
 
+	void update_visibility_notifiers();
+
 	bool free(RID p_rid);
 	RendererCanvasCull();
 	~RendererCanvasCull();
 };
 
-#endif // VISUALSERVERCANVAS_H
+#endif // RENDERER_CANVAS_CULL_H

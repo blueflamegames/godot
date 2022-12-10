@@ -2,14 +2,14 @@
 
 #version 450
 
-VERSION_DEFINES
+#VERSION_DEFINES
 
 layout(location = 0) in vec3 vertex_attrib;
 
 layout(location = 0) out float depth_interp;
 layout(location = 1) out flat uint element_index;
 
-layout(push_constant, binding = 0, std430) uniform Params {
+layout(push_constant, std430) uniform Params {
 	uint base_index;
 	uint pad0;
 	uint pad1;
@@ -63,8 +63,8 @@ void main() {
 
 #version 450
 
-VERSION_DEFINES
-
+#VERSION_DEFINES
+#ifndef MOLTENVK_USED // Metal will corrupt GPU state otherwise
 #if defined(has_GL_KHR_shader_subgroup_ballot) && defined(has_GL_KHR_shader_subgroup_arithmetic) && defined(has_GL_KHR_shader_subgroup_vote)
 
 #extension GL_KHR_shader_subgroup_ballot : enable
@@ -72,6 +72,7 @@ VERSION_DEFINES
 #extension GL_KHR_shader_subgroup_vote : enable
 
 #define USE_SUBGROUPS
+#endif
 #endif
 
 layout(location = 0) in float depth_interp;
@@ -117,7 +118,7 @@ void main() {
 	uint cluster_thread_group_index;
 
 	if (!gl_HelperInvocation) {
-		//http://advances.realtimerendering.com/s2017/2017_Sig_Improved_Culling_final.pdf
+		//https://advances.realtimerendering.com/s2017/2017_Sig_Improved_Culling_final.pdf
 
 		uvec4 mask;
 
@@ -141,7 +142,11 @@ void main() {
 		}
 	}
 #else
-	if (!gl_HelperInvocation) {
+// MoltenVK/Metal fails to compile shaders using gl_HelperInvocation for some GPUs
+#ifndef MOLTENVK_USED
+	if (!gl_HelperInvocation)
+#endif
+	{
 		atomicOr(cluster_render.data[usage_write_offset], usage_write_bit);
 	}
 #endif
@@ -161,7 +166,11 @@ void main() {
 		}
 	}
 #else
-	if (!gl_HelperInvocation) {
+// MoltenVK/Metal fails to compile shaders using gl_HelperInvocation for some GPUs
+#ifndef MOLTENVK_USED
+	if (!gl_HelperInvocation)
+#endif
+	{
 		atomicOr(cluster_render.data[z_write_offset], z_write_bit);
 	}
 #endif

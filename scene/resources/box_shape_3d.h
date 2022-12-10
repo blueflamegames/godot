@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -28,8 +28,8 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 
-#ifndef BOX_SHAPE_H
-#define BOX_SHAPE_H
+#ifndef BOX_SHAPE_3D_H
+#define BOX_SHAPE_3D_H
 
 #include "scene/resources/shape_3d.h"
 
@@ -39,6 +39,10 @@ class BoxShape3D : public Shape3D {
 
 protected:
 	static void _bind_methods();
+#ifndef DISABLE_DEPRECATED
+	bool _set(const StringName &p_name, const Variant &p_value);
+	bool _get(const StringName &p_name, Variant &r_property) const;
+#endif // DISABLE_DEPRECATED
 
 	virtual void _update_shape() override;
 
@@ -52,4 +56,4 @@ public:
 	BoxShape3D();
 };
 
-#endif // BOX_SHAPE_H
+#endif // BOX_SHAPE_3D_H

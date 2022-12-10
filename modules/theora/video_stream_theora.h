@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,8 +31,8 @@
 #ifndef VIDEO_STREAM_THEORA_H
 #define VIDEO_STREAM_THEORA_H
 
+#include "core/io/file_access.h"
 #include "core/io/resource_loader.h"
-#include "core/os/file_access.h"
 #include "core/os/semaphore.h"
 #include "core/os/thread.h"
 #include "core/templates/ring_buffer.h"
@@ -56,7 +56,7 @@ class VideoStreamPlaybackTheora : public VideoStreamPlayback {
 	Image::Format format = Image::Format::FORMAT_L8;
 	Vector<uint8_t> frame_data;
 	int frames_pending = 0;
-	FileAccess *file = nullptr;
+	Ref<FileAccess> file;
 	String file_name;
 	int audio_frames_wrote = 0;
 	Point2i size;
@@ -64,7 +64,7 @@ class VideoStreamPlaybackTheora : public VideoStreamPlayback {
 	int buffer_data();
 	int queue_page(ogg_page *page);
 	void video_write();
-	float get_time() const;
+	double get_time() const;
 
 	bool theora_eos = false;
 	bool vorbis_eos = false;
@@ -76,7 +76,7 @@ class VideoStreamPlaybackTheora : public VideoStreamPlayback {
 	th_info ti;
 	th_comment tc;
 	th_dec_ctx *td = nullptr;
-	vorbis_info vi;
+	vorbis_info vi = {};
 	vorbis_dsp_state vd;
 	vorbis_block vb;
 	vorbis_comment vc;
@@ -99,7 +99,7 @@ class VideoStreamPlaybackTheora : public VideoStreamPlayback {
 
 	Ref<ImageTexture> texture;
 
-	AudioMixCallback mix_callback;
+	AudioMixCallback mix_callback = nullptr;
 	void *mix_udata = nullptr;
 	bool paused = false;
 
@@ -112,7 +112,7 @@ class VideoStreamPlaybackTheora : public VideoStreamPlayback {
 	RingBuffer<uint8_t> ring_buffer;
 	Vector<uint8_t> read_buffer;
 	bool thread_eof = false;
-	Semaphore *thread_sem;
+	Semaphore *thread_sem = nullptr;
 	Thread thread;
 	SafeFlag thread_exit;
 
@@ -136,19 +136,19 @@ public:
 	virtual void set_loop(bool p_enable) override;
 	virtual bool has_loop() const override;
 
-	virtual float get_length() const override;
+	virtual double get_length() const override;
 
 	virtual String get_stream_name() const;
 
 	virtual int get_loop_count() const;
 
-	virtual float get_playback_position() const override;
-	virtual void seek(float p_time) override;
+	virtual double get_playback_position() const override;
+	virtual void seek(double p_time) override;
 
 	void set_file(const String &p_file);
 
 	virtual Ref<Texture2D> get_texture() const override;
-	virtual void update(float p_delta) override;
+	virtual void update(double p_delta) override;
 
 	virtual void set_mix_callback(AudioMixCallback p_callback, void *p_userdata) override;
 	virtual int get_channels() const override;
@@ -170,7 +170,7 @@ protected:
 	static void _bind_methods();
 
 public:
-	Ref<VideoStreamPlayback> instance_playback() override {
+	Ref<VideoStreamPlayback> instantiate_playback() override {
 		Ref<VideoStreamPlaybackTheora> pb = memnew(VideoStreamPlaybackTheora);
 		pb->set_audio_track(audio_track);
 		pb->set_file(file);
@@ -186,10 +186,10 @@ public:
 
 class ResourceFormatLoaderTheora : public ResourceFormatLoader {
 public:
-	virtual RES load(const String &p_path, const String &p_original_path = "", Error *r_error = nullptr, bool p_use_sub_threads = false, float *r_progress = nullptr, CacheMode p_cache_mode = CACHE_MODE_REUSE);
+	virtual Ref<Resource> load(const String &p_path, const String &p_original_path = "", Error *r_error = nullptr, bool p_use_sub_threads = false, float *r_progress = nullptr, CacheMode p_cache_mode = CACHE_MODE_REUSE);
 	virtual void get_recognized_extensions(List<String> *p_extensions) const;
 	virtual bool handles_type(const String &p_type) const;
 	virtual String get_resource_type(const String &p_path) const;
 };
 
-#endif
+#endif // VIDEO_STREAM_THEORA_H

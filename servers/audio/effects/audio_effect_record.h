@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -28,15 +28,14 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 
-#ifndef AUDIOEFFECTRECORD_H
-#define AUDIOEFFECTRECORD_H
+#ifndef AUDIO_EFFECT_RECORD_H
+#define AUDIO_EFFECT_RECORD_H
 
+#include "core/io/file_access.h"
 #include "core/io/marshalls.h"
-#include "core/os/file_access.h"
 #include "core/os/os.h"
 #include "core/os/thread.h"
-#include "editor/import/resource_importer_wav.h"
-#include "scene/resources/audio_stream_sample.h"
+#include "scene/resources/audio_stream_wav.h"
 #include "servers/audio/audio_effect.h"
 #include "servers/audio_server.h"
 
@@ -49,7 +48,6 @@ class AudioEffectRecordInstance : public AudioEffectInstance {
 
 	bool is_recording;
 	Thread io_thread;
-	bool thread_active = false;
 
 	Vector<AudioFrame> ring_buffer;
 	Vector<float> recording_data;
@@ -87,23 +85,22 @@ class AudioEffectRecord : public AudioEffect {
 	bool recording_active;
 	Ref<AudioEffectRecordInstance> current_instance;
 
-	AudioStreamSample::Format format;
+	AudioStreamWAV::Format format;
 
 	void ensure_thread_stopped();
 
 protected:
 	static void _bind_methods();
-	static void debug(uint64_t time_diff, int p_frame_count);
 
 public:
-	Ref<AudioEffectInstance> instance() override;
+	Ref<AudioEffectInstance> instantiate() override;
 	void set_recording_active(bool p_record);
 	bool is_recording_active() const;
-	void set_format(AudioStreamSample::Format p_format);
-	AudioStreamSample::Format get_format() const;
-	Ref<AudioStreamSample> get_recording() const;
+	void set_format(AudioStreamWAV::Format p_format);
+	AudioStreamWAV::Format get_format() const;
+	Ref<AudioStreamWAV> get_recording() const;
 
 	AudioEffectRecord();
 };
 
-#endif // AUDIOEFFECTRECORD_H
+#endif // AUDIO_EFFECT_RECORD_H

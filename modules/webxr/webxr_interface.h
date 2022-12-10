@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -35,8 +35,6 @@
 #include "servers/xr/xr_positional_tracker.h"
 
 /**
-	@author David Snopek <david.snopek@snopekgames.com>
-
 	The WebXR interface is a VR/AR interface that can be used on the web.
 */
 
@@ -47,6 +45,13 @@ protected:
 	static void _bind_methods();
 
 public:
+	enum TargetRayMode {
+		TARGET_RAY_MODE_UNKNOWN,
+		TARGET_RAY_MODE_GAZE,
+		TARGET_RAY_MODE_TRACKED_POINTER,
+		TARGET_RAY_MODE_SCREEN,
+	};
+
 	virtual void is_session_supported(const String &p_session_mode) = 0;
 	virtual void set_session_mode(String p_session_mode) = 0;
 	virtual String get_session_mode() const = 0;
@@ -57,9 +62,12 @@ public:
 	virtual void set_requested_reference_space_types(String p_requested_reference_space_types) = 0;
 	virtual String get_requested_reference_space_types() const = 0;
 	virtual String get_reference_space_type() const = 0;
-	virtual Ref<XRPositionalTracker> get_controller(int p_controller_id) const = 0;
+	virtual bool is_input_source_active(int p_input_source_id) const = 0;
+	virtual Ref<XRPositionalTracker> get_input_source_tracker(int p_input_source_id) const = 0;
+	virtual TargetRayMode get_input_source_target_ray_mode(int p_input_source_id) const = 0;
 	virtual String get_visibility_state() const = 0;
-	virtual PackedVector3Array get_bounds_geometry() const = 0;
 };
+
+VARIANT_ENUM_CAST(WebXRInterface::TargetRayMode);
 
 #endif // WEBXR_INTERFACE_H

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -39,9 +39,11 @@
 EngineDebugger *EngineDebugger::singleton = nullptr;
 ScriptDebugger *EngineDebugger::script_debugger = nullptr;
 
-Map<StringName, EngineDebugger::Profiler> EngineDebugger::profilers;
-Map<StringName, EngineDebugger::Capture> EngineDebugger::captures;
-Map<String, EngineDebugger::CreatePeerFunc> EngineDebugger::protocols;
+HashMap<StringName, EngineDebugger::Profiler> EngineDebugger::profilers;
+HashMap<StringName, EngineDebugger::Capture> EngineDebugger::captures;
+HashMap<String, EngineDebugger::CreatePeerFunc> EngineDebugger::protocols;
+
+void (*EngineDebugger::allow_focus_steal_fn)();
 
 void EngineDebugger::register_profiler(const StringName &p_name, const Profiler &p_func) {
 	ERR_FAIL_COND_MSG(profilers.has(p_name), "Profiler already registered: " + p_name);
@@ -117,14 +119,14 @@ void EngineDebugger::line_poll() {
 	poll_every++;
 }
 
-void EngineDebugger::iteration(uint64_t p_frame_ticks, uint64_t p_process_ticks, uint64_t p_physics_ticks, float p_physics_frame_time) {
+void EngineDebugger::iteration(uint64_t p_frame_ticks, uint64_t p_process_ticks, uint64_t p_physics_ticks, double p_physics_frame_time) {
 	frame_time = USEC_TO_SEC(p_frame_ticks);
 	process_time = USEC_TO_SEC(p_process_ticks);
 	physics_time = USEC_TO_SEC(p_physics_ticks);
 	physics_frame_time = p_physics_frame_time;
 	// Notify tick to running profilers
-	for (Map<StringName, Profiler>::Element *E = profilers.front(); E; E = E->next()) {
-		Profiler &p = E->get();
+	for (KeyValue<StringName, Profiler> &E : profilers) {
+		Profiler &p = E.value;
 		if (!p.active || !p.tick) {
 			continue;
 		}
@@ -133,7 +135,7 @@ void EngineDebugger::iteration(uint64_t p_frame_ticks, uint64_t p_process_ticks,
 	singleton->poll_events(true);
 }
 
-void EngineDebugger::initialize(const String &p_uri, bool p_skip_breakpoints, Vector<String> p_breakpoints) {
+void EngineDebugger::initialize(const String &p_uri, bool p_skip_breakpoints, Vector<String> p_breakpoints, void (*p_allow_focus_steal_fn)()) {
 	register_uri_handler("tcp://", RemoteDebuggerPeerTCP::create); // TCP is the default protocol. Platforms/modules can add more.
 	if (p_uri.is_empty()) {
 		return;
@@ -174,14 +176,16 @@ void EngineDebugger::initialize(const String &p_uri, bool p_skip_breakpoints, Ve
 
 		singleton_script_debugger->insert_breakpoint(bp.substr(sp + 1, bp.length()).to_int(), bp.substr(0, sp));
 	}
+
+	allow_focus_steal_fn = p_allow_focus_steal_fn;
 }
 
 void EngineDebugger::deinitialize() {
 	if (singleton) {
 		// Stop all profilers
-		for (Map<StringName, Profiler>::Element *E = profilers.front(); E; E = E->next()) {
-			if (E->get().active) {
-				singleton->profiler_enable(E->key(), false);
+		for (const KeyValue<StringName, Profiler> &E : profilers) {
+			if (E.value.active) {
+				singleton->profiler_enable(E.key, false);
 			}
 		}
 

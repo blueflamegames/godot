@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -33,8 +33,8 @@
 
 #include "scene/main/node.h"
 
-class MultiNodeEdit : public Reference {
-	GDCLASS(MultiNodeEdit, Reference);
+class MultiNodeEdit : public RefCounted {
+	GDCLASS(MultiNodeEdit, RefCounted);
 
 	List<NodePath> nodes;
 	struct PLData {
@@ -45,15 +45,25 @@ class MultiNodeEdit : public Reference {
 	bool _set_impl(const StringName &p_name, const Variant &p_value, const String &p_field);
 
 protected:
+	static void _bind_methods();
+
 	bool _set(const StringName &p_name, const Variant &p_value);
 	bool _get(const StringName &p_name, Variant &r_ret) const;
 	void _get_property_list(List<PropertyInfo> *p_list) const;
 
 public:
+	bool _hide_script_from_inspector() { return true; }
+	bool _hide_metadata_from_inspector() { return true; }
+
+	bool _property_can_revert(const StringName &p_name) const;
+	bool _property_get_revert(const StringName &p_name, Variant &r_property) const;
+	String _get_editor_name() const;
+
 	void add_node(const NodePath &p_node);
 
 	int get_node_count() const;
 	NodePath get_node(int p_index) const;
+	StringName get_edited_class_name() const;
 
 	void set_property_field(const StringName &p_property, const Variant &p_value, const String &p_field);
 

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -36,21 +36,19 @@
 
 #include <string.h>
 
-Error ImageLoaderPNG::load_image(Ref<Image> p_image, FileAccess *f, bool p_force_linear, float p_scale) {
-	const size_t buffer_size = f->get_len();
+Error ImageLoaderPNG::load_image(Ref<Image> p_image, Ref<FileAccess> f, BitField<ImageFormatLoader::LoaderFlags> p_flags, float p_scale) {
+	const uint64_t buffer_size = f->get_length();
 	Vector<uint8_t> file_buffer;
 	Error err = file_buffer.resize(buffer_size);
 	if (err) {
-		f->close();
 		return err;
 	}
 	{
 		uint8_t *writer = file_buffer.ptrw();
 		f->get_buffer(writer, buffer_size);
-		f->close();
 	}
 	const uint8_t *reader = file_buffer.ptr();
-	return PNGDriverCommon::png_to_image(reader, buffer_size, p_force_linear, p_image);
+	return PNGDriverCommon::png_to_image(reader, buffer_size, p_flags & FLAG_FORCE_LINEAR, p_image);
 }
 
 void ImageLoaderPNG::get_recognized_extensions(List<String> *p_extensions) const {
@@ -59,7 +57,7 @@ void ImageLoaderPNG::get_recognized_extensions(List<String> *p_extensions) const
 
 Ref<Image> ImageLoaderPNG::load_mem_png(const uint8_t *p_png, int p_size) {
 	Ref<Image> img;
-	img.instance();
+	img.instantiate();
 
 	// the value of p_force_linear does not matter since it only applies to 16 bit
 	Error err = PNGDriverCommon::png_to_image(p_png, p_size, false, img);
@@ -88,7 +86,7 @@ Vector<uint8_t> ImageLoaderPNG::lossless_pack_png(const Ref<Image> &p_image) {
 	{
 		// must be closed before call to image_to_png
 		uint8_t *writer = out_buffer.ptrw();
-		copymem(writer, "PNG ", 4);
+		memcpy(writer, "PNG ", 4);
 	}
 
 	Error err = PNGDriverCommon::image_to_png(p_image, out_buffer);
@@ -101,6 +99,6 @@ Vector<uint8_t> ImageLoaderPNG::lossless_pack_png(const Ref<Image> &p_image) {
 
 ImageLoaderPNG::ImageLoaderPNG() {
 	Image::_png_mem_loader_func = load_mem_png;
-	Image::lossless_unpacker = lossless_unpack_png;
-	Image::lossless_packer = lossless_pack_png;
+	Image::png_unpacker = lossless_unpack_png;
+	Image::png_packer = lossless_pack_png;
 }

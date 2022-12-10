@@ -1,10 +1,5 @@
 using System;
 using System.Runtime.InteropServices;
-#if REAL_T_IS_DOUBLE
-using real_t = System.Double;
-#else
-using real_t = System.Single;
-#endif
 
 namespace Godot
 {
@@ -21,18 +16,17 @@ namespace Godot
     public struct Transform2D : IEquatable<Transform2D>
     {
         /// <summary>
-        /// The basis matrix's X vector (column 0). Equivalent to array index `[0]`.
+        /// The basis matrix's X vector (column 0). Equivalent to array index <c>[0]</c>.
         /// </summary>
-        /// <value></value>
         public Vector2 x;
 
         /// <summary>
-        /// The basis matrix's Y vector (column 1). Equivalent to array index `[1]`.
+        /// The basis matrix's Y vector (column 1). Equivalent to array index <c>[1]</c>.
         /// </summary>
         public Vector2 y;
 
         /// <summary>
-        /// The origin vector (column 2, the third column). Equivalent to array index `[2]`.
+        /// The origin vector (column 2, the third column). Equivalent to array index <c>[2]</c>.
         /// The origin vector represents translation.
         /// </summary>
         public Vector2 origin;
@@ -43,7 +37,7 @@ namespace Godot
         /// <value>Getting is equivalent to calling <see cref="Mathf.Atan2(real_t, real_t)"/> with the values of <see cref="x"/>.</value>
         public real_t Rotation
         {
-            get
+            readonly get
             {
                 return Mathf.Atan2(x.y, x.x);
             }
@@ -63,7 +57,7 @@ namespace Godot
         /// <value>Equivalent to the lengths of each column vector, but Y is negative if the determinant is negative.</value>
         public Vector2 Scale
         {
-            get
+            readonly get
             {
                 real_t detSign = Mathf.Sign(BasisDeterminant());
                 return new Vector2(x.Length(), detSign * y.Length());
@@ -77,12 +71,16 @@ namespace Godot
         }
 
         /// <summary>
-        /// Access whole columns in the form of Vector2. The third column is the origin vector.
+        /// Access whole columns in the form of <see cref="Vector2"/>.
+        /// The third column is the <see cref="origin"/> vector.
         /// </summary>
         /// <param name="column">Which column vector.</param>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// <paramref name="column"/> is not 0, 1 or 2.
+        /// </exception>
         public Vector2 this[int column]
         {
-            get
+            readonly get
             {
                 switch (column)
                 {
@@ -93,7 +91,7 @@ namespace Godot
                     case 2:
                         return origin;
                     default:
-                        throw new IndexOutOfRangeException();
+                        throw new ArgumentOutOfRangeException(nameof(column));
                 }
             }
             set
@@ -110,19 +108,20 @@ namespace Godot
                         origin = value;
                         return;
                     default:
-                        throw new IndexOutOfRangeException();
+                        throw new ArgumentOutOfRangeException(nameof(column));
                 }
             }
         }
 
         /// <summary>
-        /// Access matrix elements in column-major order. The third column is the origin vector.
+        /// Access matrix elements in column-major order.
+        /// The third column is the <see cref="origin"/> vector.
         /// </summary>
         /// <param name="column">Which column, the matrix horizontal position.</param>
         /// <param name="row">Which row, the matrix vertical position.</param>
         public real_t this[int column, int row]
         {
-            get
+            readonly get
             {
                 return this[column][row];
             }
@@ -138,19 +137,19 @@ namespace Godot
         /// Returns the inverse of the transform, under the assumption that
         /// the transformation is composed of rotation, scaling, and translation.
         /// </summary>
+        /// <seealso cref="Inverse"/>
         /// <returns>The inverse transformation matrix.</returns>
-        public Transform2D AffineInverse()
+        public readonly Transform2D AffineInverse()
         {
             real_t det = BasisDeterminant();
 
             if (det == 0)
                 throw new InvalidOperationException("Matrix determinant is zero and cannot be inverted.");
 
-            var inv = this;
+            Transform2D inv = this;
 
-            real_t temp = inv[0, 0];
-            inv[0, 0] = inv[1, 1];
-            inv[1, 1] = temp;
+            inv[0, 0] = this[1, 1];
+            inv[1, 1] = this[0, 0];
 
             real_t detInv = 1.0f / det;
 
@@ -171,43 +170,45 @@ namespace Godot
         /// and is usually considered invalid.
         /// </summary>
         /// <returns>The determinant of the basis matrix.</returns>
-        private real_t BasisDeterminant()
+        private readonly real_t BasisDeterminant()
         {
-            return x.x * y.y - x.y * y.x;
+            return (x.x * y.y) - (x.y * y.x);
         }
 
         /// <summary>
         /// Returns a vector transformed (multiplied) by the basis matrix.
-        /// This method does not account for translation (the origin vector).
+        /// This method does not account for translation (the <see cref="origin"/> vector).
         /// </summary>
+        /// <seealso cref="BasisXformInv(Vector2)"/>
         /// <param name="v">A vector to transform.</param>
         /// <returns>The transformed vector.</returns>
-        public Vector2 BasisXform(Vector2 v)
+        public readonly Vector2 BasisXform(Vector2 v)
         {
             return new Vector2(Tdotx(v), Tdoty(v));
         }
 
         /// <summary>
         /// Returns a vector transformed (multiplied) by the inverse basis matrix.
-        /// This method does not account for translation (the origin vector).
+        /// This method does not account for translation (the <see cref="origin"/> vector).
         ///
         /// Note: This results in a multiplication by the inverse of the
         /// basis matrix only if it represents a rotation-reflection.
         /// </summary>
+        /// <seealso cref="BasisXform(Vector2)"/>
         /// <param name="v">A vector to inversely transform.</param>
         /// <returns>The inversely transformed vector.</returns>
-        public Vector2 BasisXformInv(Vector2 v)
+        public readonly Vector2 BasisXformInv(Vector2 v)
         {
             return new Vector2(x.Dot(v), y.Dot(v));
         }
 
         /// <summary>
-        /// Interpolates this transform to the other `transform` by `weight`.
+        /// Interpolates this transform to the other <paramref name="transform"/> by <paramref name="weight"/>.
         /// </summary>
         /// <param name="transform">The other transform.</param>
         /// <param name="weight">A value on the range of 0.0 to 1.0, representing the amount of interpolation.</param>
         /// <returns>The interpolated transform.</returns>
-        public Transform2D InterpolateWith(Transform2D transform, real_t weight)
+        public readonly Transform2D InterpolateWith(Transform2D transform, real_t weight)
         {
             real_t r1 = Rotation;
             real_t r2 = transform.Rotation;
@@ -233,8 +234,8 @@ namespace Godot
             else
             {
                 real_t angle = weight * Mathf.Acos(dot);
-                Vector2 v3 = (v2 - v1 * dot).Normalized();
-                v = v1 * Mathf.Cos(angle) + v3 * Mathf.Sin(angle);
+                Vector2 v3 = (v2 - (v1 * dot)).Normalized();
+                v = (v1 * Mathf.Cos(angle)) + (v3 * Mathf.Sin(angle));
             }
 
             // Extract parameters
@@ -256,14 +257,13 @@ namespace Godot
         /// (no scaling, use <see cref="AffineInverse"/> for transforms with scaling).
         /// </summary>
         /// <returns>The inverse matrix.</returns>
-        public Transform2D Inverse()
+        public readonly Transform2D Inverse()
         {
-            var inv = this;
+            Transform2D inv = this;
 
             // Swap
-            real_t temp = inv.x.y;
-            inv.x.y = inv.y.x;
-            inv.y.x = temp;
+            inv.x.y = y.x;
+            inv.y.x = x.y;
 
             inv.origin = inv.BasisXform(-inv.origin);
 
@@ -275,15 +275,15 @@ namespace Godot
         /// and normalized axis vectors (scale of 1 or -1).
         /// </summary>
         /// <returns>The orthonormalized transform.</returns>
-        public Transform2D Orthonormalized()
+        public readonly Transform2D Orthonormalized()
         {
-            var on = this;
+            Transform2D on = this;
 
             Vector2 onX = on.x;
             Vector2 onY = on.y;
 
             onX.Normalize();
-            onY = onY - onX * onX.Dot(onY);
+            onY = onY - (onX * onX.Dot(onY));
             onY.Normalize();
 
             on.x = onX;
@@ -293,82 +293,96 @@ namespace Godot
         }
 
         /// <summary>
-        /// Rotates the transform by `phi` (in radians), using matrix multiplication.
+        /// Rotates the transform by <paramref name="angle"/> (in radians).
+        /// The operation is done in the parent/global frame, equivalent to
+        /// multiplying the matrix from the left.
         /// </summary>
-        /// <param name="phi">The angle to rotate, in radians.</param>
+        /// <param name="angle">The angle to rotate, in radians.</param>
         /// <returns>The rotated transformation matrix.</returns>
-        public Transform2D Rotated(real_t phi)
+        public readonly Transform2D Rotated(real_t angle)
         {
-            return this * new Transform2D(phi, new Vector2());
+            return this * new Transform2D(angle, new Vector2());
         }
 
         /// <summary>
-        /// Scales the transform by the given scaling factor, using matrix multiplication.
+        /// Rotates the transform by <paramref name="angle"/> (in radians).
+        /// The operation is done in the local frame, equivalent to
+        /// multiplying the matrix from the right.
+        /// </summary>
+        /// <param name="angle">The angle to rotate, in radians.</param>
+        /// <returns>The rotated transformation matrix.</returns>
+        public readonly Transform2D RotatedLocal(real_t angle)
+        {
+            return new Transform2D(angle, new Vector2()) * this;
+        }
+
+        /// <summary>
+        /// Scales the transform by the given scaling factor.
+        /// The operation is done in the parent/global frame, equivalent to
+        /// multiplying the matrix from the left.
         /// </summary>
         /// <param name="scale">The scale to introduce.</param>
         /// <returns>The scaled transformation matrix.</returns>
-        public Transform2D Scaled(Vector2 scale)
+        public readonly Transform2D Scaled(Vector2 scale)
         {
-            var copy = this;
+            Transform2D copy = this;
             copy.x *= scale;
             copy.y *= scale;
             copy.origin *= scale;
             return copy;
         }
 
-        private void ScaleBasis(Vector2 scale)
+        /// <summary>
+        /// Scales the transform by the given scaling factor.
+        /// The operation is done in the local frame, equivalent to
+        /// multiplying the matrix from the right.
+        /// </summary>
+        /// <param name="scale">The scale to introduce.</param>
+        /// <returns>The scaled transformation matrix.</returns>
+        public readonly Transform2D ScaledLocal(Vector2 scale)
         {
-            x.x *= scale.x;
-            x.y *= scale.y;
-            y.x *= scale.x;
-            y.y *= scale.y;
+            Transform2D copy = this;
+            copy.x *= scale;
+            copy.y *= scale;
+            return copy;
         }
 
-        private real_t Tdotx(Vector2 with)
+        private readonly real_t Tdotx(Vector2 with)
         {
-            return this[0, 0] * with[0] + this[1, 0] * with[1];
+            return (this[0, 0] * with[0]) + (this[1, 0] * with[1]);
         }
 
-        private real_t Tdoty(Vector2 with)
+        private readonly real_t Tdoty(Vector2 with)
         {
-            return this[0, 1] * with[0] + this[1, 1] * with[1];
+            return (this[0, 1] * with[0]) + (this[1, 1] * with[1]);
         }
 
         /// <summary>
-        /// Translates the transform by the given `offset`,
-        /// relative to the transform's basis vectors.
-        ///
-        /// Unlike <see cref="Rotated"/> and <see cref="Scaled"/>,
-        /// this does not use matrix multiplication.
+        /// Translates the transform by the given <paramref name="offset"/>.
+        /// The operation is done in the parent/global frame, equivalent to
+        /// multiplying the matrix from the left.
         /// </summary>
         /// <param name="offset">The offset to translate by.</param>
         /// <returns>The translated matrix.</returns>
-        public Transform2D Translated(Vector2 offset)
+        public readonly Transform2D Translated(Vector2 offset)
         {
-            var copy = this;
-            copy.origin += copy.BasisXform(offset);
+            Transform2D copy = this;
+            copy.origin += offset;
             return copy;
         }
 
         /// <summary>
-        /// Returns a vector transformed (multiplied) by this transformation matrix.
+        /// Translates the transform by the given <paramref name="offset"/>.
+        /// The operation is done in the local frame, equivalent to
+        /// multiplying the matrix from the right.
         /// </summary>
-        /// <param name="v">A vector to transform.</param>
-        /// <returns>The transformed vector.</returns>
-        public Vector2 Xform(Vector2 v)
+        /// <param name="offset">The offset to translate by.</param>
+        /// <returns>The translated matrix.</returns>
+        public readonly Transform2D TranslatedLocal(Vector2 offset)
         {
-            return new Vector2(Tdotx(v), Tdoty(v)) + origin;
-        }
-
-        /// <summary>
-        /// Returns a vector transformed (multiplied) by the inverse transformation matrix.
-        /// </summary>
-        /// <param name="v">A vector to inversely transform.</param>
-        /// <returns>The inversely transformed vector.</returns>
-        public Vector2 XformInv(Vector2 v)
-        {
-            Vector2 vInv = v - origin;
-            return new Vector2(x.Dot(vInv), y.Dot(vInv));
+            Transform2D copy = this;
+            copy.origin += copy.BasisXform(offset);
+            return copy;
         }
 
         // Constants
@@ -378,20 +392,20 @@ namespace Godot
 
         /// <summary>
         /// The identity transform, with no translation, rotation, or scaling applied.
-        /// This is used as a replacement for `Transform2D()` in GDScript.
-        /// Do not use `new Transform2D()` with no arguments in C#, because it sets all values to zero.
+        /// This is used as a replacement for <c>Transform2D()</c> in GDScript.
+        /// Do not use <c>new Transform2D()</c> with no arguments in C#, because it sets all values to zero.
         /// </summary>
-        /// <value>Equivalent to `new Transform2D(Vector2.Right, Vector2.Down, Vector2.Zero)`.</value>
+        /// <value>Equivalent to <c>new Transform2D(Vector2.Right, Vector2.Down, Vector2.Zero)</c>.</value>
         public static Transform2D Identity { get { return _identity; } }
         /// <summary>
         /// The transform that will flip something along the X axis.
         /// </summary>
-        /// <value>Equivalent to `new Transform2D(Vector2.Left, Vector2.Down, Vector2.Zero)`.</value>
+        /// <value>Equivalent to <c>new Transform2D(Vector2.Left, Vector2.Down, Vector2.Zero)</c>.</value>
         public static Transform2D FlipX { get { return _flipX; } }
         /// <summary>
         /// The transform that will flip something along the Y axis.
         /// </summary>
-        /// <value>Equivalent to `new Transform2D(Vector2.Right, Vector2.Up, Vector2.Zero)`.</value>
+        /// <value>Equivalent to <c>new Transform2D(Vector2.Right, Vector2.Up, Vector2.Zero)</c>.</value>
         public static Transform2D FlipY { get { return _flipY; } }
 
         /// <summary>
@@ -411,12 +425,12 @@ namespace Godot
         /// Constructs a transformation matrix from the given components.
         /// Arguments are named such that xy is equal to calling x.y
         /// </summary>
-        /// <param name="xx">The X component of the X column vector, accessed via `t.x.x` or `[0][0]`</param>
-        /// <param name="xy">The Y component of the X column vector, accessed via `t.x.y` or `[0][1]`</param>
-        /// <param name="yx">The X component of the Y column vector, accessed via `t.y.x` or `[1][0]`</param>
-        /// <param name="yy">The Y component of the Y column vector, accessed via `t.y.y` or `[1][1]`</param>
-        /// <param name="ox">The X component of the origin vector, accessed via `t.origin.x` or `[2][0]`</param>
-        /// <param name="oy">The Y component of the origin vector, accessed via `t.origin.y` or `[2][1]`</param>
+        /// <param name="xx">The X component of the X column vector, accessed via <c>t.x.x</c> or <c>[0][0]</c>.</param>
+        /// <param name="xy">The Y component of the X column vector, accessed via <c>t.x.y</c> or <c>[0][1]</c>.</param>
+        /// <param name="yx">The X component of the Y column vector, accessed via <c>t.y.x</c> or <c>[1][0]</c>.</param>
+        /// <param name="yy">The Y component of the Y column vector, accessed via <c>t.y.y</c> or <c>[1][1]</c>.</param>
+        /// <param name="ox">The X component of the origin vector, accessed via <c>t.origin.x</c> or <c>[2][0]</c>.</param>
+        /// <param name="oy">The Y component of the origin vector, accessed via <c>t.origin.y</c> or <c>[2][1]</c>.</param>
         public Transform2D(real_t xx, real_t xy, real_t yx, real_t yy, real_t ox, real_t oy)
         {
             x = new Vector2(xx, xy);
@@ -425,21 +439,30 @@ namespace Godot
         }
 
         /// <summary>
-        /// Constructs a transformation matrix from a rotation value and origin vector.
+        /// Constructs a transformation matrix from a <paramref name="rotation"/> value and
+        /// <paramref name="origin"/> vector.
         /// </summary>
-        /// <param name="rot">The rotation of the new transform, in radians.</param>
-        /// <param name="pos">The origin vector, or column index 2.</param>
-        public Transform2D(real_t rot, Vector2 pos)
+        /// <param name="rotation">The rotation of the new transform, in radians.</param>
+        /// <param name="origin">The origin vector, or column index 2.</param>
+        public Transform2D(real_t rotation, Vector2 origin)
         {
-            x.x = y.y = Mathf.Cos(rot);
-            x.y = y.x = Mathf.Sin(rot);
+            x.x = y.y = Mathf.Cos(rotation);
+            x.y = y.x = Mathf.Sin(rotation);
             y.x *= -1;
-            origin = pos;
+            this.origin = origin;
         }
 
+        /// <summary>
+        /// Composes these two transformation matrices by multiplying them
+        /// together. This has the effect of transforming the second transform
+        /// (the child) by the first transform (the parent).
+        /// </summary>
+        /// <param name="left">The parent transform.</param>
+        /// <param name="right">The child transform.</param>
+        /// <returns>The composed transform.</returns>
         public static Transform2D operator *(Transform2D left, Transform2D right)
         {
-            left.origin = left.Xform(right.origin);
+            left.origin = left * right.origin;
 
             real_t x0 = left.Tdotx(right.x);
             real_t x1 = left.Tdoty(right.x);
@@ -454,60 +477,183 @@ namespace Godot
             return left;
         }
 
+        /// <summary>
+        /// Returns a Vector2 transformed (multiplied) by the transformation matrix.
+        /// </summary>
+        /// <param name="transform">The transformation to apply.</param>
+        /// <param name="vector">A Vector2 to transform.</param>
+        /// <returns>The transformed Vector2.</returns>
+        public static Vector2 operator *(Transform2D transform, Vector2 vector)
+        {
+            return new Vector2(transform.Tdotx(vector), transform.Tdoty(vector)) + transform.origin;
+        }
+
+        /// <summary>
+        /// Returns a Vector2 transformed (multiplied) by the inverse transformation matrix.
+        /// </summary>
+        /// <param name="vector">A Vector2 to inversely transform.</param>
+        /// <param name="transform">The transformation to apply.</param>
+        /// <returns>The inversely transformed Vector2.</returns>
+        public static Vector2 operator *(Vector2 vector, Transform2D transform)
+        {
+            Vector2 vInv = vector - transform.origin;
+            return new Vector2(transform.x.Dot(vInv), transform.y.Dot(vInv));
+        }
+
+        /// <summary>
+        /// Returns a Rect2 transformed (multiplied) by the transformation matrix.
+        /// </summary>
+        /// <param name="transform">The transformation to apply.</param>
+        /// <param name="rect">A Rect2 to transform.</param>
+        /// <returns>The transformed Rect2.</returns>
+        public static Rect2 operator *(Transform2D transform, Rect2 rect)
+        {
+            Vector2 pos = transform * rect.Position;
+            Vector2 toX = transform.x * rect.Size.x;
+            Vector2 toY = transform.y * rect.Size.y;
+
+            return new Rect2(pos, new Vector2()).Expand(pos + toX).Expand(pos + toY).Expand(pos + toX + toY);
+        }
+
+        /// <summary>
+        /// Returns a Rect2 transformed (multiplied) by the inverse transformation matrix.
+        /// </summary>
+        /// <param name="rect">A Rect2 to inversely transform.</param>
+        /// <param name="transform">The transformation to apply.</param>
+        /// <returns>The inversely transformed Rect2.</returns>
+        public static Rect2 operator *(Rect2 rect, Transform2D transform)
+        {
+            Vector2 pos = rect.Position * transform;
+            Vector2 to1 = new Vector2(rect.Position.x, rect.Position.y + rect.Size.y) * transform;
+            Vector2 to2 = new Vector2(rect.Position.x + rect.Size.x, rect.Position.y + rect.Size.y) * transform;
+            Vector2 to3 = new Vector2(rect.Position.x + rect.Size.x, rect.Position.y) * transform;
+
+            return new Rect2(pos, new Vector2()).Expand(to1).Expand(to2).Expand(to3);
+        }
+
+        /// <summary>
+        /// Returns a copy of the given Vector2[] transformed (multiplied) by the transformation matrix.
+        /// </summary>
+        /// <param name="transform">The transformation to apply.</param>
+        /// <param name="array">A Vector2[] to transform.</param>
+        /// <returns>The transformed copy of the Vector2[].</returns>
+        public static Vector2[] operator *(Transform2D transform, Vector2[] array)
+        {
+            Vector2[] newArray = new Vector2[array.Length];
+
+            for (int i = 0; i < array.Length; i++)
+            {
+                newArray[i] = transform * array[i];
+            }
+
+            return newArray;
+        }
+
+        /// <summary>
+        /// Returns a copy of the given Vector2[] transformed (multiplied) by the inverse transformation matrix.
+        /// </summary>
+        /// <param name="array">A Vector2[] to inversely transform.</param>
+        /// <param name="transform">The transformation to apply.</param>
+        /// <returns>The inversely transformed copy of the Vector2[].</returns>
+        public static Vector2[] operator *(Vector2[] array, Transform2D transform)
+        {
+            Vector2[] newArray = new Vector2[array.Length];
+
+            for (int i = 0; i < array.Length; i++)
+            {
+                newArray[i] = array[i] * transform;
+            }
+
+            return newArray;
+        }
+
+        /// <summary>
+        /// Returns <see langword="true"/> if the transforms are exactly equal.
+        /// Note: Due to floating-point precision errors, consider using
+        /// <see cref="IsEqualApprox"/> instead, which is more reliable.
+        /// </summary>
+        /// <param name="left">The left transform.</param>
+        /// <param name="right">The right transform.</param>
+        /// <returns>Whether or not the transforms are exactly equal.</returns>
         public static bool operator ==(Transform2D left, Transform2D right)
         {
             return left.Equals(right);
         }
 
+        /// <summary>
+        /// Returns <see langword="true"/> if the transforms are not equal.
+        /// Note: Due to floating-point precision errors, consider using
+        /// <see cref="IsEqualApprox"/> instead, which is more reliable.
+        /// </summary>
+        /// <param name="left">The left transform.</param>
+        /// <param name="right">The right transform.</param>
+        /// <returns>Whether or not the transforms are not equal.</returns>
         public static bool operator !=(Transform2D left, Transform2D right)
         {
             return !left.Equals(right);
         }
 
-        public override bool Equals(object obj)
+        /// <summary>
+        /// Returns <see langword="true"/> if the transform is exactly equal
+        /// to the given object (<see paramref="obj"/>).
+        /// Note: Due to floating-point precision errors, consider using
+        /// <see cref="IsEqualApprox"/> instead, which is more reliable.
+        /// </summary>
+        /// <param name="obj">The object to compare with.</param>
+        /// <returns>Whether or not the transform and the object are exactly equal.</returns>
+        public override readonly bool Equals(object obj)
         {
-            return obj is Transform2D transform2D && Equals(transform2D);
+            return obj is Transform2D other && Equals(other);
         }
 
-        public bool Equals(Transform2D other)
+        /// <summary>
+        /// Returns <see langword="true"/> if the transforms are exactly equal.
+        /// Note: Due to floating-point precision errors, consider using
+        /// <see cref="IsEqualApprox"/> instead, which is more reliable.
+        /// </summary>
+        /// <param name="other">The other transform to compare.</param>
+        /// <returns>Whether or not the matrices are exactly equal.</returns>
+        public readonly bool Equals(Transform2D other)
         {
             return x.Equals(other.x) && y.Equals(other.y) && origin.Equals(other.origin);
         }
 
         /// <summary>
-        /// Returns true if this transform and `other` are approximately equal, by running
-        /// <see cref="Vector2.IsEqualApprox(Vector2)"/> on each component.
+        /// Returns <see langword="true"/> if this transform and <paramref name="other"/> are approximately equal,
+        /// by running <see cref="Vector2.IsEqualApprox(Vector2)"/> on each component.
         /// </summary>
         /// <param name="other">The other transform to compare.</param>
         /// <returns>Whether or not the matrices are approximately equal.</returns>
-        public bool IsEqualApprox(Transform2D other)
+        public readonly bool IsEqualApprox(Transform2D other)
         {
             return x.IsEqualApprox(other.x) && y.IsEqualApprox(other.y) && origin.IsEqualApprox(other.origin);
         }
 
-        public override int GetHashCode()
+        /// <summary>
+        /// Serves as the hash function for <see cref="Transform2D"/>.
+        /// </summary>
+        /// <returns>A hash code for this transform.</returns>
+        public override readonly int GetHashCode()
         {
             return x.GetHashCode() ^ y.GetHashCode() ^ origin.GetHashCode();
         }
 
-        public override string ToString()
+        /// <summary>
+        /// Converts this <see cref="Transform2D"/> to a string.
+        /// </summary>
+        /// <returns>A string representation of this transform.</returns>
+        public override readonly string ToString()
         {
-            return String.Format("({0}, {1}, {2})", new object[]
-            {
-                x.ToString(),
-                y.ToString(),
-                origin.ToString()
-            });
+            return $"[X: {x}, Y: {y}, O: {origin}]";
         }
 
-        public string ToString(string format)
+        /// <summary>
+        /// Converts this <see cref="Transform2D"/> to a string with the given <paramref name="format"/>.
+        /// </summary>
+        /// <returns>A string representation of this transform.</returns>
+        public readonly string ToString(string format)
         {
-            return String.Format("({0}, {1}, {2})", new object[]
-            {
-                x.ToString(format),
-                y.ToString(format),
-                origin.ToString(format)
-            });
+            return $"[X: {x.ToString(format)}, Y: {y.ToString(format)}, O: {origin.ToString(format)}]";
         }
     }
 }

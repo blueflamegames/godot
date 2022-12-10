@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -64,7 +64,7 @@ protected:
 
 	static void _bind_methods();
 
-	virtual void _validate_property(PropertyInfo &property) const override;
+	void _validate_property(PropertyInfo &p_property) const;
 
 public:
 #ifdef TOOLS_ENABLED
@@ -109,8 +109,8 @@ public:
 	void set_frame(int p_frame);
 	int get_frame() const;
 
-	void set_frame_coords(const Vector2 &p_coord);
-	Vector2 get_frame_coords() const;
+	void set_frame_coords(const Vector2i &p_coord);
+	Vector2i get_frame_coords() const;
 
 	void set_vframes(int p_amount);
 	int get_vframes() const;
@@ -125,4 +125,4 @@ public:
 	~Sprite2D();
 };
 
-#endif // SPRITE_H
+#endif // SPRITE_2D_H

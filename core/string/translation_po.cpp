@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,12 +30,12 @@
 
 #include "translation_po.h"
 
-#include "core/os/file_access.h"
+#include "core/io/file_access.h"
 
 #ifdef DEBUG_TRANSLATION_PO
 void TranslationPO::print_translation_map() {
 	Error err;
-	FileAccess *file = FileAccess::open("translation_map_print_test.txt", FileAccess::WRITE, &err);
+	Ref<FileAccess> file = FileAccess::open("translation_map_print_test.txt", FileAccess::WRITE, &err);
 	if (err != OK) {
 		ERR_PRINT("Failed to open translation_map_print_test.txt");
 		return;
@@ -47,14 +47,13 @@ void TranslationPO::print_translation_map() {
 
 	List<StringName> context_l;
 	translation_map.get_key_list(&context_l);
-	for (auto E = context_l.front(); E; E = E->next()) {
-		StringName ctx = E->get();
+	for (const StringName &ctx : context_l) {
 		file->store_line(" ===== Context: " + String::utf8(String(ctx).utf8()) + " ===== ");
 		const HashMap<StringName, Vector<StringName>> &inner_map = translation_map[ctx];
 
 		List<StringName> id_l;
 		inner_map.get_key_list(&id_l);
-		for (auto E2 = id_l.front(); E2; E2 = E2->next()) {
+		for (List<StringName>::Element *E2 = id_l.front(); E2; E2 = E2->next()) {
 			StringName id = E2->get();
 			file->store_line("msgid: " + String::utf8(String(id).utf8()));
 			for (int i = 0; i < inner_map[id].size(); i++) {
@@ -63,7 +62,6 @@ void TranslationPO::print_translation_map() {
 			file->store_line("");
 		}
 	}
-	file->close();
 }
 #endif
 
@@ -72,22 +70,14 @@ Dictionary TranslationPO::_get_messages() const {
 
 	Dictionary d;
 
-	List<StringName> context_l;
-	translation_map.get_key_list(&context_l);
-	for (auto E = context_l.front(); E; E = E->next()) {
-		StringName ctx = E->get();
-		const HashMap<StringName, Vector<StringName>> &id_str_map = translation_map[ctx];
-
+	for (const KeyValue<StringName, HashMap<StringName, Vector<StringName>>> &E : translation_map) {
 		Dictionary d2;
-		List<StringName> id_l;
-		id_str_map.get_key_list(&id_l);
-		// Save list of id and strs associated with a context in a temporary dictionary.
-		for (auto E2 = id_l.front(); E2; E2 = E2->next()) {
-			StringName id = E2->get();
-			d2[id] = id_str_map[id];
+
+		for (const KeyValue<StringName, Vector<StringName>> &E2 : E.value) {
+			d2[E2.key] = E2.value;
 		}
 
-		d[ctx] = d2;
+		d[E.key] = d2;
 	}
 
 	return d;
@@ -98,20 +88,36 @@ void TranslationPO::_set_messages(const Dictionary &p_messages) {
 
 	List<Variant> context_l;
 	p_messages.get_key_list(&context_l);
-	for (auto E = context_l.front(); E; E = E->next()) {
-		StringName ctx = E->get();
+	for (const Variant &ctx : context_l) {
 		const Dictionary &id_str_map = p_messages[ctx];
 
 		HashMap<StringName, Vector<StringName>> temp_map;
 		List<Variant> id_l;
 		id_str_map.get_key_list(&id_l);
-		for (auto E2 = id_l.front(); E2; E2 = E2->next()) {
+		for (List<Variant>::Element *E2 = id_l.front(); E2; E2 = E2->next()) {
 			StringName id = E2->get();
 			temp_map[id] = id_str_map[id];
 		}
 
 		translation_map[ctx] = temp_map;
 	}
+}
+
+Vector<String> TranslationPO::get_translated_message_list() const {
+	Vector<String> msgs;
+	for (const KeyValue<StringName, HashMap<StringName, Vector<StringName>>> &E : translation_map) {
+		if (E.key != StringName()) {
+			continue;
+		}
+
+		for (const KeyValue<StringName, Vector<StringName>> &E2 : E.value) {
+			for (const StringName &E3 : E2.value) {
+				msgs.push_back(E3);
+			}
+		}
+	}
+
+	return msgs;
 }
 
 Vector<String> TranslationPO::_get_message_list() const {
@@ -121,8 +127,8 @@ Vector<String> TranslationPO::_get_message_list() const {
 	get_message_list(&msgs);
 
 	Vector<String> v;
-	for (auto E = msgs.front(); E; E = E->next()) {
-		v.push_back(E->get());
+	for (const StringName &E : msgs) {
+		v.push_back(E);
 	}
 
 	return v;
@@ -188,7 +194,7 @@ void TranslationPO::set_plural_rule(const String &p_plural_rule) {
 	plural_rule = plural_rule.replacen("(", "");
 	plural_rule = plural_rule.replacen(")", "");
 	_cache_plural_tests(plural_rule);
-	expr.instance();
+	expr.instantiate();
 	input_name.push_back("n");
 }
 
@@ -278,31 +284,24 @@ void TranslationPO::get_message_list(List<StringName> *r_messages) const {
 	// OptimizedTranslation uses this function to get the list of msgid.
 	// Return all the keys of translation_map under "" context.
 
-	List<StringName> context_l;
-	translation_map.get_key_list(&context_l);
-
-	for (auto E = context_l.front(); E; E = E->next()) {
-		if (String(E->get()) != "") {
+	for (const KeyValue<StringName, HashMap<StringName, Vector<StringName>>> &E : translation_map) {
+		if (E.key != StringName()) {
 			continue;
 		}
 
-		List<StringName> msgid_l;
-		translation_map[E->get()].get_key_list(&msgid_l);
-
-		for (auto E2 = msgid_l.front(); E2; E2 = E2->next()) {
-			r_messages->push_back(E2->get());
+		for (const KeyValue<StringName, Vector<StringName>> &E2 : E.value) {
+			r_messages->push_back(E2.key);
 		}
 	}
 }
 
 int TranslationPO::get_message_count() const {
-	List<StringName> context_l;
-	translation_map.get_key_list(&context_l);
-
 	int count = 0;
-	for (auto E = context_l.front(); E; E = E->next()) {
-		count += translation_map[E->get()].size();
+
+	for (const KeyValue<StringName, HashMap<StringName, Vector<StringName>>> &E : translation_map) {
+		count += E.value.size();
 	}
+
 	return count;
 }
 

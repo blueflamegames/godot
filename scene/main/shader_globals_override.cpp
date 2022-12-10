@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,8 +30,7 @@
 
 #include "shader_globals_override.h"
 
-#include "core/core_string_names.h"
-#include "scene/main/window.h"
+#include "scene/3d/node_3d.h"
 #include "scene/scene_string_names.h"
 
 StringName *ShaderGlobalsOverride::_remap(const StringName &p_name) const {
@@ -63,7 +62,12 @@ bool ShaderGlobalsOverride::_set(const StringName &p_name, const Variant &p_valu
 		if (o) {
 			o->override = p_value;
 			if (active) {
-				RS::get_singleton()->global_variable_set_override(*r, p_value);
+				if (o->override.get_type() == Variant::OBJECT) {
+					RID tex_rid = p_value;
+					RS::get_singleton()->global_shader_parameter_set_override(*r, tex_rid);
+				} else {
+					RS::get_singleton()->global_shader_parameter_set_override(*r, p_value);
+				}
 			}
 			o->in_use = p_value.get_type() != Variant::NIL;
 			return true;
@@ -89,13 +93,13 @@ bool ShaderGlobalsOverride::_get(const StringName &p_name, Variant &r_ret) const
 
 void ShaderGlobalsOverride::_get_property_list(List<PropertyInfo> *p_list) const {
 	Vector<StringName> variables;
-	variables = RS::get_singleton()->global_variable_get_list();
+	variables = RS::get_singleton()->global_shader_parameter_get_list();
 	for (int i = 0; i < variables.size(); i++) {
 		PropertyInfo pinfo;
 		pinfo.name = "params/" + variables[i];
 		pinfo.usage = PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_CHECKABLE;
 
-		switch (RS::get_singleton()->global_variable_get_type(variables[i])) {
+		switch (RS::get_singleton()->global_shader_parameter_get_type(variables[i])) {
 			case RS::GLOBAL_VAR_TYPE_BOOL: {
 				pinfo.type = Variant::BOOL;
 			} break;
@@ -151,7 +155,7 @@ void ShaderGlobalsOverride::_get_property_list(List<PropertyInfo> *p_list) const
 				pinfo.type = Variant::VECTOR3;
 			} break;
 			case RS::GLOBAL_VAR_TYPE_VEC4: {
-				pinfo.type = Variant::PLANE;
+				pinfo.type = Variant::VECTOR4;
 			} break;
 			case RS::GLOBAL_VAR_TYPE_RECT2: {
 				pinfo.type = Variant::RECT2;
@@ -165,14 +169,14 @@ void ShaderGlobalsOverride::_get_property_list(List<PropertyInfo> *p_list) const
 			case RS::GLOBAL_VAR_TYPE_MAT3: {
 				pinfo.type = Variant::BASIS;
 			} break;
+			case RS::GLOBAL_VAR_TYPE_MAT4: {
+				pinfo.type = Variant::PROJECTION;
+			} break;
 			case RS::GLOBAL_VAR_TYPE_TRANSFORM_2D: {
 				pinfo.type = Variant::TRANSFORM2D;
 			} break;
 			case RS::GLOBAL_VAR_TYPE_TRANSFORM: {
-				pinfo.type = Variant::TRANSFORM;
-			} break;
-			case RS::GLOBAL_VAR_TYPE_MAT4: {
-				pinfo.type = Variant::PACKED_INT32_ARRAY;
+				pinfo.type = Variant::TRANSFORM3D;
 			} break;
 			case RS::GLOBAL_VAR_TYPE_SAMPLER2D: {
 				pinfo.type = Variant::OBJECT;
@@ -217,6 +221,7 @@ void ShaderGlobalsOverride::_get_property_list(List<PropertyInfo> *p_list) const
 }
 
 void ShaderGlobalsOverride::_activate() {
+	ERR_FAIL_NULL(get_tree());
 	List<Node *> nodes;
 	get_tree()->get_nodes_in_group(SceneStringNames::get_singleton()->shader_overrides_group_active, &nodes);
 	if (nodes.size() == 0) {
@@ -224,53 +229,56 @@ void ShaderGlobalsOverride::_activate() {
 		active = true;
 		add_to_group(SceneStringNames::get_singleton()->shader_overrides_group_active);
 
-		const StringName *K = nullptr;
-		while ((K = overrides.next(K))) {
-			Override *o = overrides.getptr(*K);
+		for (const KeyValue<StringName, Override> &E : overrides) {
+			const Override *o = &E.value;
 			if (o->in_use && o->override.get_type() != Variant::NIL) {
-				RS::get_singleton()->global_variable_set_override(*K, o->override);
+				if (o->override.get_type() == Variant::OBJECT) {
+					RID tex_rid = o->override;
+					RS::get_singleton()->global_shader_parameter_set_override(E.key, tex_rid);
+				} else {
+					RS::get_singleton()->global_shader_parameter_set_override(E.key, o->override);
+				}
 			}
-		}
 
-		update_configuration_warning(); //may have activated
+			update_configuration_warnings(); //may have activated
+		}
 	}
 }
 
 void ShaderGlobalsOverride::_notification(int p_what) {
-	if (p_what == Node3D::NOTIFICATION_ENTER_TREE) {
-		add_to_group(SceneStringNames::get_singleton()->shader_overrides_group);
-		_activate();
+	switch (p_what) {
+		case Node3D::NOTIFICATION_ENTER_TREE: {
+			add_to_group(SceneStringNames::get_singleton()->shader_overrides_group);
+			_activate();
+		} break;
 
-	} else if (p_what == Node3D::NOTIFICATION_EXIT_TREE) {
-		if (active) {
-			//remove overrides
-			const StringName *K = nullptr;
-			while ((K = overrides.next(K))) {
-				Override *o = overrides.getptr(*K);
-				if (o->in_use) {
-					RS::get_singleton()->global_variable_set_override(*K, Variant());
+		case Node3D::NOTIFICATION_EXIT_TREE: {
+			if (active) {
+				//remove overrides
+				for (const KeyValue<StringName, Override> &E : overrides) {
+					const Override *o = &E.value;
+					if (o->in_use) {
+						RS::get_singleton()->global_shader_parameter_set_override(E.key, Variant());
+					}
 				}
 			}
-		}
 
-		remove_from_group(SceneStringNames::get_singleton()->shader_overrides_group_active);
-		remove_from_group(SceneStringNames::get_singleton()->shader_overrides_group);
-		get_tree()->call_group(SceneStringNames::get_singleton()->shader_overrides_group, "_activate"); //another may want to activate when this is removed
-		active = false;
+			remove_from_group(SceneStringNames::get_singleton()->shader_overrides_group_active);
+			remove_from_group(SceneStringNames::get_singleton()->shader_overrides_group);
+			get_tree()->call_group_flags(SceneTree::GROUP_CALL_DEFERRED, SceneStringNames::get_singleton()->shader_overrides_group, "_activate"); //another may want to activate when this is removed
+			active = false;
+		} break;
 	}
 }
 
-String ShaderGlobalsOverride::get_configuration_warning() const {
-	String warning = Node::get_configuration_warning();
+PackedStringArray ShaderGlobalsOverride::get_configuration_warnings() const {
+	PackedStringArray warnings = Node::get_configuration_warnings();
 
 	if (!active) {
-		if (!warning.is_empty()) {
-			warning += "\n\n";
-		}
-		warning += TTR("ShaderGlobalsOverride is not active because another node of the same type is in the scene.");
+		warnings.push_back(RTR("ShaderGlobalsOverride is not active because another node of the same type is in the scene."));
 	}
 
-	return warning;
+	return warnings;
 }
 
 void ShaderGlobalsOverride::_bind_methods() {

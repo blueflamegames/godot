@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -32,10 +32,9 @@
 
 #include "core/os/os.h"
 #include "servers/rendering_server.h"
-#include "texture_basisu.h"
 
 #ifdef TOOLS_ENABLED
-#include <basisu_comp.h>
+#include <encoder/basisu_comp.h>
 #endif
 
 #include <transcoder/basisu_transcoder.h>
@@ -49,8 +48,6 @@ enum BasisDecompressFormat {
 
 //workaround for lack of ETC2 RG
 #define USE_RG_AS_RGBA
-
-basist::etc1_global_selector_codebook *sel_codebook = nullptr;
 
 #ifdef TOOLS_ENABLED
 static Vector<uint8_t> basis_universal_packer(const Ref<Image> &p_image, Image::UsedChannels p_channels) {
@@ -78,18 +75,14 @@ static Vector<uint8_t> basis_universal_packer(const Ref<Image> &p_image, Image::
 			memcpy(buimg.get_ptr(), r, vec.size());
 		}
 
-		//image->save_png("pepeche.png");
-
 		basisu::basis_compressor_params params;
+		params.m_uastc = true;
 		params.m_max_endpoint_clusters = 512;
 		params.m_max_selector_clusters = 512;
 		params.m_multithreading = true;
-		//params.m_no_hybrid_sel_cb = true; //fixme, default on this causes crashes //seems fixed?
-		params.m_pSel_codebook = sel_codebook;
 		//params.m_quality_level = 0;
 		//params.m_disable_hierarchical_endpoint_codebooks = true;
 		//params.m_no_selector_rdo = true;
-		params.m_auto_global_sel_pal = false;
 
 		basisu::job_pool jpool(OS::get_singleton()->get_processor_count());
 		params.m_pJob_pool = &jpool;
@@ -150,12 +143,11 @@ static Vector<uint8_t> basis_universal_packer(const Ref<Image> &p_image, Image::
 }
 #endif // TOOLS_ENABLED
 
-static Ref<Image> basis_universal_unpacker(const Vector<uint8_t> &p_buffer) {
+static Ref<Image> basis_universal_unpacker_ptr(const uint8_t *p_data, int p_size) {
 	Ref<Image> image;
 
-	const uint8_t *r = p_buffer.ptr();
-	const uint8_t *ptr = r;
-	int size = p_buffer.size();
+	const uint8_t *ptr = p_data;
+	int size = p_size;
 
 	basist::transcoder_texture_format format = basist::transcoder_texture_format::cTFTotalTextureFormats;
 	Image::Format imgfmt = Image::FORMAT_MAX;
@@ -203,7 +195,7 @@ static Ref<Image> basis_universal_unpacker(const Vector<uint8_t> &p_buffer) {
 				format = basist::transcoder_texture_format::cTFETC2; // get this from renderer
 				imgfmt = Image::FORMAT_ETC2_RGBA8;
 			} else {
-				//gles2 most likely
+				//opengl most likely
 				format = basist::transcoder_texture_format::cTFRGBA4444; // get this from renderer
 				imgfmt = Image::FORMAT_RGBA4444;
 			}
@@ -216,7 +208,7 @@ static Ref<Image> basis_universal_unpacker(const Vector<uint8_t> &p_buffer) {
 				format = basist::transcoder_texture_format::cTFETC2; // get this from renderer
 				imgfmt = Image::FORMAT_ETC2_RGBA8;
 			} else {
-				//gles2 most likely, bad for normal maps, nothing to do about this.
+				//opengl most likely, bad for normal maps, nothing to do about this.
 				format = basist::transcoder_texture_format::cTFRGBA32;
 				imgfmt = Image::FORMAT_RGBA8;
 			}
@@ -226,14 +218,14 @@ static Ref<Image> basis_universal_unpacker(const Vector<uint8_t> &p_buffer) {
 	ptr += 4;
 	size -= 4;
 
-	basist::basisu_transcoder tr(nullptr);
+	basist::basisu_transcoder tr;
 
 	ERR_FAIL_COND_V(!tr.validate_header(ptr, size), image);
 
 	basist::basisu_image_info info;
 	tr.get_image_info(ptr, size, info, 0);
 
-	int block_size = basist::basis_get_bytes_per_block(format);
+	int block_size = basist::basis_get_bytes_per_block_or_pixel(format);
 	Vector<uint8_t> gpudata;
 	gpudata.resize(info.m_total_blocks * block_size);
 
@@ -252,7 +244,7 @@ static Ref<Image> basis_universal_unpacker(const Vector<uint8_t> &p_buffer) {
 
 			bool ret = tr.transcode_image_level(ptr, size, 0, i, dst + ofs, level.m_total_blocks - i, format);
 			if (!ret) {
-				printf("failed! on level %i\n", i);
+				printf("failed! on level %u\n", i);
 				break;
 			};
 
@@ -260,25 +252,43 @@ static Ref<Image> basis_universal_unpacker(const Vector<uint8_t> &p_buffer) {
 		};
 	};
 
-	image.instance();
-	image->create(info.m_width, info.m_height, info.m_total_levels > 1, imgfmt, gpudata);
+	image.instantiate();
+	image->set_data(info.m_width, info.m_height, info.m_total_levels > 1, imgfmt, gpudata);
 
 	return image;
 }
 
-void register_basis_universal_types() {
+static Ref<Image> basis_universal_unpacker(const Vector<uint8_t> &p_buffer) {
+	Ref<Image> image;
+
+	const uint8_t *r = p_buffer.ptr();
+	int size = p_buffer.size();
+	return basis_universal_unpacker_ptr(r, size);
+}
+
+void initialize_basis_universal_module(ModuleInitializationLevel p_level) {
+	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
+		return;
+	}
+
 #ifdef TOOLS_ENABLED
-	sel_codebook = new basist::etc1_global_selector_codebook(basist::g_global_selector_cb_size, basist::g_global_selector_cb);
+	using namespace basisu;
+	using namespace basist;
+	basisu_encoder_init();
 	Image::basis_universal_packer = basis_universal_packer;
 #endif
 	Image::basis_universal_unpacker = basis_universal_unpacker;
-	//ClassDB::register_class<TextureBasisU>();
+	Image::basis_universal_unpacker_ptr = basis_universal_unpacker_ptr;
 }
 
-void unregister_basis_universal_types() {
+void uninitialize_basis_universal_module(ModuleInitializationLevel p_level) {
+	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
+		return;
+	}
+
 #ifdef TOOLS_ENABLED
-	delete sel_codebook;
 	Image::basis_universal_packer = nullptr;
 #endif
 	Image::basis_universal_unpacker = nullptr;
+	Image::basis_universal_unpacker_ptr = nullptr;
 }

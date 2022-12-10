@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,22 +30,18 @@
 
 #include "file_access_unix.h"
 
-#if defined(UNIX_ENABLED) || defined(LIBC_FILEIO_ENABLED)
+#if defined(UNIX_ENABLED)
 
 #include "core/os/os.h"
 #include "core/string/print_string.h"
 
+#include <errno.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#include <errno.h>
-
 #if defined(UNIX_ENABLED)
 #include <unistd.h>
-#endif
-
-#ifndef ANDROID_ENABLED
-#include <sys/statvfs.h>
 #endif
 
 #ifdef MSVC
@@ -56,12 +52,6 @@
 #define S_ISREG(m) ((m)&S_IFREG)
 #endif
 
-#ifndef NO_FCNTL
-#include <fcntl.h>
-#else
-#include <sys/ioctl.h>
-#endif
-
 void FileAccessUnix::check_errors() const {
 	ERR_FAIL_COND_MSG(!f, "File must be opened before use.");
 
@@ -70,11 +60,8 @@ void FileAccessUnix::check_errors() const {
 	}
 }
 
-Error FileAccessUnix::_open(const String &p_path, int p_mode_flags) {
-	if (f) {
-		fclose(f);
-	}
-	f = nullptr;
+Error FileAccessUnix::open_internal(const String &p_path, int p_mode_flags) {
+	_close();
 
 	path_src = p_path;
 	path = fix_path(p_path);
@@ -99,7 +86,7 @@ Error FileAccessUnix::_open(const String &p_path, int p_mode_flags) {
 	   backend (unix-compatible mostly) supports utf8 encoding */
 
 	//printf("opening %s as %s\n", p_path.utf8().get_data(), path.utf8().get_data());
-	struct stat st;
+	struct stat st = {};
 	int err = stat(path.utf8().get_data(), &st);
 	if (!err) {
 		switch (st.st_mode & S_IFMT) {
@@ -111,7 +98,7 @@ Error FileAccessUnix::_open(const String &p_path, int p_mode_flags) {
 		}
 	}
 
-	if (is_backup_save_enabled() && (p_mode_flags & WRITE) && !(p_mode_flags & READ)) {
+	if (is_backup_save_enabled() && (p_mode_flags == WRITE)) {
 		save_path = path;
 		path = path + ".tmp";
 	}
@@ -134,13 +121,8 @@ Error FileAccessUnix::_open(const String &p_path, int p_mode_flags) {
 	int fd = fileno(f);
 
 	if (fd != -1) {
-#if defined(NO_FCNTL)
-		unsigned long par = 0;
-		ioctl(fd, FIOCLEX, &par);
-#else
 		int opts = fcntl(fd, F_GETFD);
 		fcntl(fd, F_SETFD, opts | FD_CLOEXEC);
-#endif
 	}
 
 	last_error = OK;
@@ -148,7 +130,7 @@ Error FileAccessUnix::_open(const String &p_path, int p_mode_flags) {
 	return OK;
 }
 
-void FileAccessUnix::close() {
+void FileAccessUnix::_close() {
 	if (!f) {
 		return;
 	}
@@ -160,7 +142,7 @@ void FileAccessUnix::close() {
 		close_notification_func(path, flags);
 	}
 
-	if (save_path != "") {
+	if (!save_path.is_empty()) {
 		int rename_error = rename((save_path + ".tmp").utf8().get_data(), save_path.utf8().get_data());
 
 		if (rename_error && close_fail_notify) {
@@ -184,11 +166,11 @@ String FileAccessUnix::get_path_absolute() const {
 	return path;
 }
 
-void FileAccessUnix::seek(size_t p_position) {
+void FileAccessUnix::seek(uint64_t p_position) {
 	ERR_FAIL_COND_MSG(!f, "File must be opened before use.");
 
 	last_error = OK;
-	if (fseek(f, p_position, SEEK_SET)) {
+	if (fseeko(f, p_position, SEEK_SET)) {
 		check_errors();
 	}
 }
@@ -196,15 +178,15 @@ void FileAccessUnix::seek(size_t p_position) {
 void FileAccessUnix::seek_end(int64_t p_position) {
 	ERR_FAIL_COND_MSG(!f, "File must be opened before use.");
 
-	if (fseek(f, p_position, SEEK_END)) {
+	if (fseeko(f, p_position, SEEK_END)) {
 		check_errors();
 	}
 }
 
-size_t FileAccessUnix::get_position() const {
+uint64_t FileAccessUnix::get_position() const {
 	ERR_FAIL_COND_V_MSG(!f, 0, "File must be opened before use.");
 
-	long pos = ftell(f);
+	int64_t pos = ftello(f);
 	if (pos < 0) {
 		check_errors();
 		ERR_FAIL_V(0);
@@ -212,15 +194,15 @@ size_t FileAccessUnix::get_position() const {
 	return pos;
 }
 
-size_t FileAccessUnix::get_len() const {
+uint64_t FileAccessUnix::get_length() const {
 	ERR_FAIL_COND_V_MSG(!f, 0, "File must be opened before use.");
 
-	long pos = ftell(f);
+	int64_t pos = ftello(f);
 	ERR_FAIL_COND_V(pos < 0, 0);
-	ERR_FAIL_COND_V(fseek(f, 0, SEEK_END), 0);
-	long size = ftell(f);
+	ERR_FAIL_COND_V(fseeko(f, 0, SEEK_END), 0);
+	int64_t size = ftello(f);
 	ERR_FAIL_COND_V(size < 0, 0);
-	ERR_FAIL_COND_V(fseek(f, pos, SEEK_SET), 0);
+	ERR_FAIL_COND_V(fseeko(f, pos, SEEK_SET), 0);
 
 	return size;
 }
@@ -239,14 +221,14 @@ uint8_t FileAccessUnix::get_8() const {
 	return b;
 }
 
-int FileAccessUnix::get_buffer(uint8_t *p_dst, int p_length) const {
+uint64_t FileAccessUnix::get_buffer(uint8_t *p_dst, uint64_t p_length) const {
 	ERR_FAIL_COND_V(!p_dst && p_length > 0, -1);
-	ERR_FAIL_COND_V(p_length < 0, -1);
 	ERR_FAIL_COND_V_MSG(!f, -1, "File must be opened before use.");
-	int read = fread(p_dst, 1, p_length, f);
+
+	uint64_t read = fread(p_dst, 1, p_length, f);
 	check_errors();
 	return read;
-};
+}
 
 Error FileAccessUnix::get_error() const {
 	return last_error;
@@ -262,15 +244,15 @@ void FileAccessUnix::store_8(uint8_t p_dest) {
 	ERR_FAIL_COND(fwrite(&p_dest, 1, 1, f) != 1);
 }
 
-void FileAccessUnix::store_buffer(const uint8_t *p_src, int p_length) {
+void FileAccessUnix::store_buffer(const uint8_t *p_src, uint64_t p_length) {
 	ERR_FAIL_COND_MSG(!f, "File must be opened before use.");
-	ERR_FAIL_COND(!p_src);
-	ERR_FAIL_COND((int)fwrite(p_src, 1, p_length, f) != p_length);
+	ERR_FAIL_COND(!p_src && p_length > 0);
+	ERR_FAIL_COND(fwrite(p_src, 1, p_length, f) != p_length);
 }
 
 bool FileAccessUnix::file_exists(const String &p_path) {
 	int err;
-	struct stat st;
+	struct stat st = {};
 	String filename = fix_path(p_path);
 
 	// Does the name exist at all?
@@ -285,8 +267,9 @@ bool FileAccessUnix::file_exists(const String &p_path) {
 		return false;
 	}
 #else
-	if (_access(filename.utf8().get_data(), 4) == -1)
+	if (_access(filename.utf8().get_data(), 4) == -1) {
 		return false;
+	}
 #endif
 
 	// See if this is a regular file
@@ -301,26 +284,27 @@ bool FileAccessUnix::file_exists(const String &p_path) {
 
 uint64_t FileAccessUnix::_get_modified_time(const String &p_file) {
 	String file = fix_path(p_file);
-	struct stat flags;
+	struct stat flags = {};
 	int err = stat(file.utf8().get_data(), &flags);
 
 	if (!err) {
 		return flags.st_mtime;
 	} else {
-		ERR_FAIL_V_MSG(0, "Failed to get modified time for: " + p_file + ".");
-	};
+		print_verbose("Failed to get modified time for: " + p_file + "");
+		return 0;
+	}
 }
 
 uint32_t FileAccessUnix::_get_unix_permissions(const String &p_file) {
 	String file = fix_path(p_file);
-	struct stat flags;
+	struct stat flags = {};
 	int err = stat(file.utf8().get_data(), &flags);
 
 	if (!err) {
 		return flags.st_mode & 0x7FF; //only permissions
 	} else {
 		ERR_FAIL_V_MSG(0, "Failed to get unix permissions for: " + p_file + ".");
-	};
+	}
 }
 
 Error FileAccessUnix::_set_unix_permissions(const String &p_file, uint32_t p_permissions) {
@@ -334,14 +318,10 @@ Error FileAccessUnix::_set_unix_permissions(const String &p_file, uint32_t p_per
 	return FAILED;
 }
 
-FileAccess *FileAccessUnix::create_libc() {
-	return memnew(FileAccessUnix);
-}
-
 CloseNotificationFunc FileAccessUnix::close_notification_func = nullptr;
 
 FileAccessUnix::~FileAccessUnix() {
-	close();
+	_close();
 }
 
-#endif
+#endif // UNIX_ENABLED

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -47,16 +47,19 @@ public:
 	};
 
 private:
-	SpaceOverride space_override = SPACE_OVERRIDE_DISABLED;
+	SpaceOverride gravity_space_override = SPACE_OVERRIDE_DISABLED;
 	Vector2 gravity_vec;
-	real_t gravity;
+	real_t gravity = 0.0;
 	bool gravity_is_point = false;
 	real_t gravity_distance_scale = 0.0;
+
+	SpaceOverride linear_damp_space_override = SPACE_OVERRIDE_DISABLED;
+	SpaceOverride angular_damp_space_override = SPACE_OVERRIDE_DISABLED;
 	real_t linear_damp = 0.1;
 	real_t angular_damp = 1.0;
-	uint32_t collision_mask = 1;
-	uint32_t collision_layer = 1;
+
 	int priority = 0;
+
 	bool monitoring = false;
 	bool monitorable = false;
 	bool locked = false;
@@ -85,12 +88,13 @@ private:
 	};
 
 	struct BodyState {
+		RID rid;
 		int rc = 0;
 		bool in_tree = false;
 		VSet<ShapePair> shapes;
 	};
 
-	Map<ObjectID, BodyState> body_map;
+	HashMap<ObjectID, BodyState> body_map;
 
 	void _area_inout(int p_status, const RID &p_area, ObjectID p_instance, int p_area_shape, int p_self_shape);
 
@@ -116,12 +120,13 @@ private:
 	};
 
 	struct AreaState {
+		RID rid;
 		int rc = 0;
 		bool in_tree = false;
 		VSet<AreaShapePair> shapes;
 	};
 
-	Map<ObjectID, AreaState> area_map;
+	HashMap<ObjectID, AreaState> area_map;
 	void _clear_monitoring();
 
 	bool audio_bus_override = false;
@@ -130,23 +135,32 @@ private:
 protected:
 	void _notification(int p_what);
 	static void _bind_methods();
-	void _validate_property(PropertyInfo &property) const override;
+	void _validate_property(PropertyInfo &p_property) const;
 
 public:
-	void set_space_override_mode(SpaceOverride p_mode);
-	SpaceOverride get_space_override_mode() const;
+	void set_gravity_space_override_mode(SpaceOverride p_mode);
+	SpaceOverride get_gravity_space_override_mode() const;
 
 	void set_gravity_is_point(bool p_enabled);
 	bool is_gravity_a_point() const;
 
-	void set_gravity_distance_scale(real_t p_scale);
-	real_t get_gravity_distance_scale() const;
+	void set_gravity_point_distance_scale(real_t p_scale);
+	real_t get_gravity_point_distance_scale() const;
 
-	void set_gravity_vector(const Vector2 &p_vec);
-	Vector2 get_gravity_vector() const;
+	void set_gravity_point_center(const Vector2 &p_center);
+	const Vector2 &get_gravity_point_center() const;
+
+	void set_gravity_direction(const Vector2 &p_direction);
+	const Vector2 &get_gravity_direction() const;
 
 	void set_gravity(real_t p_gravity);
 	real_t get_gravity() const;
+
+	void set_linear_damp_space_override_mode(SpaceOverride p_mode);
+	SpaceOverride get_linear_damp_space_override_mode() const;
+
+	void set_angular_damp_space_override_mode(SpaceOverride p_mode);
+	SpaceOverride get_angular_damp_space_override_mode() const;
 
 	void set_linear_damp(real_t p_linear_damp);
 	real_t get_linear_damp() const;
@@ -163,20 +177,11 @@ public:
 	void set_monitorable(bool p_enable);
 	bool is_monitorable() const;
 
-	void set_collision_mask(uint32_t p_mask);
-	uint32_t get_collision_mask() const;
-
-	void set_collision_layer(uint32_t p_layer);
-	uint32_t get_collision_layer() const;
-
-	void set_collision_mask_bit(int p_bit, bool p_value);
-	bool get_collision_mask_bit(int p_bit) const;
-
-	void set_collision_layer_bit(int p_bit, bool p_value);
-	bool get_collision_layer_bit(int p_bit) const;
-
 	TypedArray<Node2D> get_overlapping_bodies() const; //function for script
 	TypedArray<Area2D> get_overlapping_areas() const; //function for script
+
+	bool has_overlapping_bodies() const;
+	bool has_overlapping_areas() const;
 
 	bool overlaps_area(Node *p_area) const;
 	bool overlaps_body(Node *p_body) const;

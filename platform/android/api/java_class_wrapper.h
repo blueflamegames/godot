@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,7 +31,7 @@
 #ifndef JAVA_CLASS_WRAPPER_H
 #define JAVA_CLASS_WRAPPER_H
 
-#include "core/object/reference.h"
+#include "core/object/ref_counted.h"
 
 #ifdef ANDROID_ENABLED
 #include <android/log.h>
@@ -42,8 +42,8 @@
 class JavaObject;
 #endif
 
-class JavaClass : public Reference {
-	GDCLASS(JavaClass, Reference);
+class JavaClass : public RefCounted {
+	GDCLASS(JavaClass, RefCounted);
 
 #ifdef ANDROID_ENABLED
 	enum ArgumentType{
@@ -63,7 +63,7 @@ class JavaClass : public Reference {
 		ARG_TYPE_MASK = (1 << 16) - 1
 	};
 
-	Map<StringName, Variant> constant_map;
+	RBMap<StringName, Variant> constant_map;
 
 	struct MethodInfo {
 		bool _static = false;
@@ -174,18 +174,18 @@ class JavaClass : public Reference {
 	bool _call_method(JavaObject *p_instance, const StringName &p_method, const Variant **p_args, int p_argcount, Callable::CallError &r_error, Variant &ret);
 
 	friend class JavaClassWrapper;
-	Map<StringName, List<MethodInfo>> methods;
+	HashMap<StringName, List<MethodInfo>> methods;
 	jclass _class;
 #endif
 
 public:
-	virtual Variant call(const StringName &p_method, const Variant **p_args, int p_argcount, Callable::CallError &r_error) override;
+	virtual Variant callp(const StringName &p_method, const Variant **p_args, int p_argcount, Callable::CallError &r_error) override;
 
 	JavaClass();
 };
 
-class JavaObject : public Reference {
-	GDCLASS(JavaObject, Reference);
+class JavaObject : public RefCounted {
+	GDCLASS(JavaObject, RefCounted);
 
 #ifdef ANDROID_ENABLED
 	Ref<JavaClass> base_class;
@@ -195,7 +195,7 @@ class JavaObject : public Reference {
 #endif
 
 public:
-	virtual Variant call(const StringName &p_method, const Variant **p_args, int p_argcount, Callable::CallError &r_error) override;
+	virtual Variant callp(const StringName &p_method, const Variant **p_args, int p_argcount, Callable::CallError &r_error) override;
 
 #ifdef ANDROID_ENABLED
 	JavaObject(const Ref<JavaClass> &p_base, jobject *p_instance);
@@ -207,7 +207,7 @@ class JavaClassWrapper : public Object {
 	GDCLASS(JavaClassWrapper, Object);
 
 #ifdef ANDROID_ENABLED
-	Map<String, Ref<JavaClass>> class_cache;
+	RBMap<String, Ref<JavaClass>> class_cache;
 	friend class JavaClass;
 	jclass activityClass;
 	jmethodID findClass;

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,7 +31,6 @@
 #include "sprite_2d.h"
 
 #include "core/core_string_names.h"
-#include "core/os/os.h"
 #include "scene/main/window.h"
 #include "scene/scene_string_names.h"
 
@@ -123,11 +122,6 @@ void Sprite2D::_notification(int p_what) {
 
 			RID ci = get_canvas_item();
 
-			/*
-			texture->draw(ci,Point2());
-			break;
-			*/
-
 			Rect2 src_rect, dst_rect;
 			bool filter_clip_enabled;
 			_get_rects(src_rect, dst_rect, filter_clip_enabled);
@@ -152,8 +146,8 @@ void Sprite2D::set_texture(const Ref<Texture2D> &p_texture) {
 		texture->connect(CoreStringNames::get_singleton()->changed, callable_mp(this, &Sprite2D::_texture_changed));
 	}
 
-	update();
-	emit_signal("texture_changed");
+	queue_redraw();
+	emit_signal(SceneStringNames::get_singleton()->texture_changed);
 	item_rect_changed();
 }
 
@@ -163,7 +157,7 @@ Ref<Texture2D> Sprite2D::get_texture() const {
 
 void Sprite2D::set_centered(bool p_center) {
 	centered = p_center;
-	update();
+	queue_redraw();
 	item_rect_changed();
 }
 
@@ -173,7 +167,7 @@ bool Sprite2D::is_centered() const {
 
 void Sprite2D::set_offset(const Point2 &p_offset) {
 	offset = p_offset;
-	update();
+	queue_redraw();
 	item_rect_changed();
 }
 
@@ -183,7 +177,7 @@ Point2 Sprite2D::get_offset() const {
 
 void Sprite2D::set_flip_h(bool p_flip) {
 	hflip = p_flip;
-	update();
+	queue_redraw();
 }
 
 bool Sprite2D::is_flipped_h() const {
@@ -192,7 +186,7 @@ bool Sprite2D::is_flipped_h() const {
 
 void Sprite2D::set_flip_v(bool p_flip) {
 	vflip = p_flip;
-	update();
+	queue_redraw();
 }
 
 bool Sprite2D::is_flipped_v() const {
@@ -205,7 +199,7 @@ void Sprite2D::set_region_enabled(bool p_region_enabled) {
 	}
 
 	region_enabled = p_region_enabled;
-	update();
+	queue_redraw();
 	notify_property_list_changed();
 }
 
@@ -231,7 +225,7 @@ Rect2 Sprite2D::get_region_rect() const {
 
 void Sprite2D::set_region_filter_clip_enabled(bool p_region_filter_clip_enabled) {
 	region_filter_clip_enabled = p_region_filter_clip_enabled;
-	update();
+	queue_redraw();
 }
 
 bool Sprite2D::is_region_filter_clip_enabled() const {
@@ -254,21 +248,21 @@ int Sprite2D::get_frame() const {
 	return frame;
 }
 
-void Sprite2D::set_frame_coords(const Vector2 &p_coord) {
-	ERR_FAIL_INDEX(int(p_coord.x), hframes);
-	ERR_FAIL_INDEX(int(p_coord.y), vframes);
+void Sprite2D::set_frame_coords(const Vector2i &p_coord) {
+	ERR_FAIL_INDEX(p_coord.x, hframes);
+	ERR_FAIL_INDEX(p_coord.y, vframes);
 
-	set_frame(int(p_coord.y) * hframes + int(p_coord.x));
+	set_frame(p_coord.y * hframes + p_coord.x);
 }
 
-Vector2 Sprite2D::get_frame_coords() const {
-	return Vector2(frame % hframes, frame / hframes);
+Vector2i Sprite2D::get_frame_coords() const {
+	return Vector2i(frame % hframes, frame / hframes);
 }
 
 void Sprite2D::set_vframes(int p_amount) {
 	ERR_FAIL_COND_MSG(p_amount < 1, "Amount of vframes cannot be smaller than 1.");
 	vframes = p_amount;
-	update();
+	queue_redraw();
 	item_rect_changed();
 	notify_property_list_changed();
 }
@@ -280,7 +274,7 @@ int Sprite2D::get_vframes() const {
 void Sprite2D::set_hframes(int p_amount) {
 	ERR_FAIL_COND_MSG(p_amount < 1, "Amount of hframes cannot be smaller than 1.");
 	hframes = p_amount;
-	update();
+	queue_redraw();
 	item_rect_changed();
 	notify_property_list_changed();
 }
@@ -315,9 +309,7 @@ bool Sprite2D::is_pixel_opaque(const Point2 &p_point) const {
 		q.y = 1.0f - q.y;
 	}
 	q = q * src_rect.size + src_rect.position;
-#ifndef _MSC_VER
-#warning this need to be obtained from CanvasItem new repeat mode (but it needs to guess it from hierarchy, need to add a function for that)
-#endif
+	// TODO: This need to be obtained from CanvasItem new repeat mode (but it needs to guess it from hierarchy, need to add a function for that).
 	bool is_repeat = false;
 	bool is_mirrored_repeat = false;
 	if (is_repeat) {
@@ -374,19 +366,19 @@ Rect2 Sprite2D::get_rect() const {
 	return Rect2(ofs, s);
 }
 
-void Sprite2D::_validate_property(PropertyInfo &property) const {
-	if (property.name == "frame") {
-		property.hint = PROPERTY_HINT_RANGE;
-		property.hint_string = "0," + itos(vframes * hframes - 1) + ",1";
-		property.usage |= PROPERTY_USAGE_KEYING_INCREMENTS;
+void Sprite2D::_validate_property(PropertyInfo &p_property) const {
+	if (p_property.name == "frame") {
+		p_property.hint = PROPERTY_HINT_RANGE;
+		p_property.hint_string = "0," + itos(vframes * hframes - 1) + ",1";
+		p_property.usage |= PROPERTY_USAGE_KEYING_INCREMENTS;
 	}
 
-	if (property.name == "frame_coords") {
-		property.usage |= PROPERTY_USAGE_KEYING_INCREMENTS;
+	if (p_property.name == "frame_coords") {
+		p_property.usage |= PROPERTY_USAGE_KEYING_INCREMENTS;
 	}
 
-	if (!region_enabled && (property.name == "region_rect" || property.name == "region_filter_clip")) {
-		property.usage = PROPERTY_USAGE_NOEDITOR;
+	if (!region_enabled && (p_property.name == "region_rect" || p_property.name == "region_filter_clip")) {
+		p_property.usage = PROPERTY_USAGE_NO_EDITOR;
 	}
 }
 
@@ -394,7 +386,7 @@ void Sprite2D::_texture_changed() {
 	// Changes to the texture need to trigger an update to make
 	// the editor redraw the sprite with the updated texture.
 	if (texture.is_valid()) {
-		update();
+		queue_redraw();
 	}
 }
 
@@ -445,14 +437,14 @@ void Sprite2D::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "texture", PROPERTY_HINT_RESOURCE_TYPE, "Texture2D"), "set_texture", "get_texture");
 	ADD_GROUP("Offset", "");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "centered"), "set_centered", "is_centered");
-	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "offset"), "set_offset", "get_offset");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "offset", PROPERTY_HINT_NONE, "suffix:px"), "set_offset", "get_offset");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_h"), "set_flip_h", "is_flipped_h");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "flip_v"), "set_flip_v", "is_flipped_v");
 	ADD_GROUP("Animation", "");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "hframes", PROPERTY_HINT_RANGE, "1,16384,1"), "set_hframes", "get_hframes");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "vframes", PROPERTY_HINT_RANGE, "1,16384,1"), "set_vframes", "get_vframes");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "frame"), "set_frame", "get_frame");
-	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2, "frame_coords", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_EDITOR), "set_frame_coords", "get_frame_coords");
+	ADD_PROPERTY(PropertyInfo(Variant::VECTOR2I, "frame_coords", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_EDITOR), "set_frame_coords", "get_frame_coords");
 
 	ADD_GROUP("Region", "region_");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "region_enabled"), "set_region_enabled", "is_region_enabled");

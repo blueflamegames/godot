@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,13 +30,28 @@
 
 #include "renderer_compositor.h"
 
+#include "core/config/project_settings.h"
 #include "core/os/os.h"
 #include "core/string/print_string.h"
+#include "servers/xr_server.h"
 
 RendererCompositor *(*RendererCompositor::_create_func)() = nullptr;
+bool RendererCompositor::low_end = false;
 
 RendererCompositor *RendererCompositor::create() {
 	return _create_func();
+}
+
+bool RendererCompositor::is_xr_enabled() const {
+	return xr_enabled;
+}
+
+RendererCompositor::RendererCompositor() {
+	if (XRServer::get_xr_mode() == XRServer::XRMODE_DEFAULT) {
+		xr_enabled = GLOBAL_GET("xr/shaders/enabled");
+	} else {
+		xr_enabled = XRServer::get_xr_mode() == XRServer::XRMODE_ON;
+	}
 }
 
 RendererCanvasRender *RendererCanvasRender::singleton = nullptr;

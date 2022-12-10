@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -42,7 +42,7 @@ private:
 	ScriptsProfiler *scripts_profiler = nullptr;
 
 	String target_function;
-	Map<String, String> options;
+	HashMap<String, String> options;
 
 	Pair<String, int> to_breakpoint(const String &p_line);
 	void print_variables(const List<String> &names, const List<Variant> &values, const String &variable_prefix);
@@ -50,7 +50,7 @@ private:
 public:
 	void debug(bool p_can_continue, bool p_is_error_breakpoint);
 	void send_message(const String &p_message, const Array &p_args);
-	void send_error(const String &p_func, const String &p_file, int p_line, const String &p_err, const String &p_descr, ErrorHandlerType p_type);
+	void send_error(const String &p_func, const String &p_file, int p_line, const String &p_err, const String &p_descr, bool p_editor_notify, ErrorHandlerType p_type);
 
 	LocalDebugger();
 	~LocalDebugger();

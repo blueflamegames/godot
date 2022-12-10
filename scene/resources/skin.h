@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -39,7 +39,7 @@ class Skin : public Resource {
 	struct Bind {
 		int bone = -1;
 		StringName name;
-		Transform pose;
+		Transform3D pose;
 	};
 
 	Vector<Bind> binds;
@@ -59,31 +59,25 @@ public:
 	void set_bind_count(int p_size);
 	inline int get_bind_count() const { return bind_count; }
 
-	void add_bind(int p_bone, const Transform &p_pose);
-	void add_named_bind(const String &p_name, const Transform &p_pose);
+	void add_bind(int p_bone, const Transform3D &p_pose);
+	void add_named_bind(const String &p_name, const Transform3D &p_pose);
 
 	void set_bind_bone(int p_index, int p_bone);
-	void set_bind_pose(int p_index, const Transform &p_pose);
+	void set_bind_pose(int p_index, const Transform3D &p_pose);
 	void set_bind_name(int p_index, const StringName &p_name);
 
 	inline int get_bind_bone(int p_index) const {
-#ifdef DEBUG_ENABLED
 		ERR_FAIL_INDEX_V(p_index, bind_count, -1);
-#endif
 		return binds_ptr[p_index].bone;
 	}
 
 	inline StringName get_bind_name(int p_index) const {
-#ifdef DEBUG_ENABLED
 		ERR_FAIL_INDEX_V(p_index, bind_count, StringName());
-#endif
 		return binds_ptr[p_index].name;
 	}
 
-	inline Transform get_bind_pose(int p_index) const {
-#ifdef DEBUG_ENABLED
-		ERR_FAIL_INDEX_V(p_index, bind_count, Transform());
-#endif
+	inline Transform3D get_bind_pose(int p_index) const {
+		ERR_FAIL_INDEX_V(p_index, bind_count, Transform3D());
 		return binds_ptr[p_index].pose;
 	}
 

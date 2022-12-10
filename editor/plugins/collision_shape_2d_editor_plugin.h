@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,9 +31,7 @@
 #ifndef COLLISION_SHAPE_2D_EDITOR_PLUGIN_H
 #define COLLISION_SHAPE_2D_EDITOR_PLUGIN_H
 
-#include "editor/editor_node.h"
 #include "editor/editor_plugin.h"
-
 #include "scene/2d/collision_shape_2d.h"
 
 class CanvasItemEditor;
@@ -46,16 +44,25 @@ class CollisionShape2DEditor : public Control {
 		CIRCLE_SHAPE,
 		CONCAVE_POLYGON_SHAPE,
 		CONVEX_POLYGON_SHAPE,
-		LINE_SHAPE,
-		RAY_SHAPE,
+		WORLD_BOUNDARY_SHAPE,
+		SEPARATION_RAY_SHAPE,
 		RECTANGLE_SHAPE,
 		SEGMENT_SHAPE
 	};
 
-	EditorNode *editor;
-	UndoRedo *undo_redo;
-	CanvasItemEditor *canvas_item_editor;
-	CollisionShape2D *node;
+	const Point2 RECT_HANDLES[8] = {
+		Point2(1, 0),
+		Point2(1, 1),
+		Point2(0, 1),
+		Point2(-1, 1),
+		Point2(-1, 0),
+		Point2(-1, -1),
+		Point2(0, -1),
+		Point2(1, -1),
+	};
+
+	CanvasItemEditor *canvas_item_editor = nullptr;
+	CollisionShape2D *node = nullptr;
 
 	Vector<Point2> handles;
 
@@ -63,6 +70,8 @@ class CollisionShape2DEditor : public Control {
 	int edit_handle;
 	bool pressed;
 	Variant original;
+	Transform2D original_transform;
+	Point2 last_point;
 
 	Variant get_handle_value(int idx) const;
 	void set_handle(int idx, Point2 &p_point);
@@ -80,14 +89,13 @@ public:
 	void forward_canvas_draw_over_viewport(Control *p_overlay);
 	void edit(Node *p_node);
 
-	CollisionShape2DEditor(EditorNode *p_editor);
+	CollisionShape2DEditor();
 };
 
 class CollisionShape2DEditorPlugin : public EditorPlugin {
 	GDCLASS(CollisionShape2DEditorPlugin, EditorPlugin);
 
-	CollisionShape2DEditor *collision_shape_2d_editor;
-	EditorNode *editor;
+	CollisionShape2DEditor *collision_shape_2d_editor = nullptr;
 
 public:
 	virtual bool forward_canvas_gui_input(const Ref<InputEvent> &p_event) override { return collision_shape_2d_editor->forward_canvas_gui_input(p_event); }
@@ -99,8 +107,8 @@ public:
 	virtual bool handles(Object *p_obj) const override;
 	virtual void make_visible(bool visible) override;
 
-	CollisionShape2DEditorPlugin(EditorNode *p_editor);
+	CollisionShape2DEditorPlugin();
 	~CollisionShape2DEditorPlugin();
 };
 
-#endif //COLLISION_SHAPE_2D_EDITOR_PLUGIN_H
+#endif // COLLISION_SHAPE_2D_EDITOR_PLUGIN_H

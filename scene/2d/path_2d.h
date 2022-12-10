@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -64,7 +64,7 @@ class PathFollow2D : public Node2D {
 public:
 private:
 	Path2D *path = nullptr;
-	real_t offset = 0.0;
+	real_t progress = 0.0;
 	real_t h_offset = 0.0;
 	real_t v_offset = 0.0;
 	real_t lookahead = 4.0;
@@ -75,14 +75,14 @@ private:
 	void _update_transform();
 
 protected:
-	virtual void _validate_property(PropertyInfo &property) const override;
+	void _validate_property(PropertyInfo &p_property) const;
 
 	void _notification(int p_what);
 	static void _bind_methods();
 
 public:
-	void set_offset(real_t p_offset);
-	real_t get_offset() const;
+	void set_progress(real_t p_progress);
+	real_t get_progress() const;
 
 	void set_h_offset(real_t p_h_offset);
 	real_t get_h_offset() const;
@@ -90,8 +90,8 @@ public:
 	void set_v_offset(real_t p_v_offset);
 	real_t get_v_offset() const;
 
-	void set_unit_offset(real_t p_unit_offset);
-	real_t get_unit_offset() const;
+	void set_progress_ratio(real_t p_ratio);
+	real_t get_progress_ratio() const;
 
 	void set_lookahead(real_t p_lookahead);
 	real_t get_lookahead() const;
@@ -105,7 +105,7 @@ public:
 	void set_cubic_interpolation(bool p_enable);
 	bool get_cubic_interpolation() const;
 
-	String get_configuration_warning() const override;
+	PackedStringArray get_configuration_warnings() const override;
 
 	PathFollow2D() {}
 };

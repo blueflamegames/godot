@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,10 +31,10 @@
 #ifndef CLUSTER_BUILDER_RD_H
 #define CLUSTER_BUILDER_RD_H
 
-#include "servers/rendering/renderer_rd/renderer_storage_rd.h"
 #include "servers/rendering/renderer_rd/shaders/cluster_debug.glsl.gen.h"
 #include "servers/rendering/renderer_rd/shaders/cluster_render.glsl.gen.h"
 #include "servers/rendering/renderer_rd/shaders/cluster_store.glsl.gen.h"
+#include "servers/rendering/renderer_rd/storage_rd/material_storage.h"
 
 class ClusterBuilderSharedDataRD {
 	friend class ClusterBuilderRD;
@@ -167,9 +167,9 @@ private:
 	uint32_t render_element_count = 0;
 	uint32_t render_element_max = 0;
 
-	Transform view_xform;
-	CameraMatrix adjusted_projection;
-	CameraMatrix projection;
+	Transform3D view_xform;
+	Projection adjusted_projection;
+	Projection projection;
 	float z_far = 0;
 	float z_near = 0;
 	bool orthogonal = false;
@@ -220,9 +220,9 @@ private:
 public:
 	void setup(Size2i p_screen_size, uint32_t p_max_elements, RID p_depth_buffer, RID p_depth_buffer_sampler, RID p_color_buffer);
 
-	void begin(const Transform &p_view_transform, const CameraMatrix &p_cam_projection, bool p_flip_y);
+	void begin(const Transform3D &p_view_transform, const Projection &p_cam_projection, bool p_flip_y);
 
-	_FORCE_INLINE_ void add_light(LightType p_type, const Transform &p_transform, float p_radius, float p_spot_aperture) {
+	_FORCE_INLINE_ void add_light(LightType p_type, const Transform3D &p_transform, float p_radius, float p_spot_aperture) {
 		if (p_type == LIGHT_TYPE_OMNI && cluster_count_by_type[ELEMENT_TYPE_OMNI_LIGHT] == max_elements_by_type) {
 			return; //max number elements reached
 		}
@@ -232,10 +232,10 @@ public:
 
 		RenderElementData &e = render_elements[render_element_count];
 
-		Transform xform = view_xform * p_transform;
+		Transform3D xform = view_xform * p_transform;
 
 		float radius = xform.basis.get_uniform_scale();
-		if (radius > 0.98 || radius < 1.02) {
+		if (radius < 0.98 || radius > 1.02) {
 			xform.basis.orthonormalize();
 		}
 
@@ -261,7 +261,7 @@ public:
 			e.type = ELEMENT_TYPE_OMNI_LIGHT;
 			e.original_index = cluster_count_by_type[ELEMENT_TYPE_OMNI_LIGHT];
 
-			RendererStorageRD::store_transform_transposed_3x4(xform, e.transform_inv);
+			RendererRD::MaterialStorage::store_transform_transposed_3x4(xform, e.transform_inv);
 
 			cluster_count_by_type[ELEMENT_TYPE_OMNI_LIGHT]++;
 
@@ -269,7 +269,7 @@ public:
 			//spot
 			radius *= shared->cone_overfit; // overfit icosphere
 
-			real_t len = Math::tan(Math::deg2rad(p_spot_aperture)) * radius;
+			real_t len = Math::tan(Math::deg_to_rad(p_spot_aperture)) * radius;
 			//approximate, probably better to use a cone support function
 			float max_d = -1e20;
 			float min_d = 1e20;
@@ -289,11 +289,11 @@ public:
 				e.touches_near = min_d < z_near;
 			} else {
 				//contains camera inside light
-				Plane base_plane(xform.origin, -xform.basis.get_axis(Vector3::AXIS_Z));
+				Plane base_plane(-xform.basis.get_column(Vector3::AXIS_Z), xform.origin);
 				float dist = base_plane.distance_to(Vector3());
 				if (dist >= 0 && dist < radius) {
 					//inside, check angle
-					float angle = Math::rad2deg(Math::acos((-xform.origin.normalized()).dot(-xform.basis.get_axis(Vector3::AXIS_Z))));
+					float angle = Math::rad_to_deg(Math::acos((-xform.origin.normalized()).dot(-xform.basis.get_column(Vector3::AXIS_Z))));
 					e.touches_near = angle < p_spot_aperture * 1.05; //overfit aperture a little due to cone overfit
 				} else {
 					e.touches_near = false;
@@ -309,7 +309,7 @@ public:
 			e.type = ELEMENT_TYPE_SPOT_LIGHT;
 			e.original_index = cluster_count_by_type[ELEMENT_TYPE_SPOT_LIGHT]; //use omni since they share index
 
-			RendererStorageRD::store_transform_transposed_3x4(xform, e.transform_inv);
+			RendererRD::MaterialStorage::store_transform_transposed_3x4(xform, e.transform_inv);
 
 			cluster_count_by_type[ELEMENT_TYPE_SPOT_LIGHT]++;
 		}
@@ -317,7 +317,7 @@ public:
 		render_element_count++;
 	}
 
-	_FORCE_INLINE_ void add_box(BoxType p_box_type, const Transform &p_transform, const Vector3 &p_half_extents) {
+	_FORCE_INLINE_ void add_box(BoxType p_box_type, const Transform3D &p_transform, const Vector3 &p_half_extents) {
 		if (p_box_type == BOX_TYPE_DECAL && cluster_count_by_type[ELEMENT_TYPE_DECAL] == max_elements_by_type) {
 			return; //max number elements reached
 		}
@@ -326,14 +326,14 @@ public:
 		}
 
 		RenderElementData &e = render_elements[render_element_count];
-		Transform xform = view_xform * p_transform;
+		Transform3D xform = view_xform * p_transform;
 
 		//extract scale and scale the matrix by it, makes things simpler
 		Vector3 scale = p_half_extents;
 		for (uint32_t i = 0; i < 3; i++) {
-			float s = xform.basis.elements[i].length();
+			float s = xform.basis.rows[i].length();
 			scale[i] *= s;
-			xform.basis.elements[i] /= s;
+			xform.basis.rows[i] /= s;
 		};
 
 		float box_depth = Math::abs(xform.basis.xform_inv(Vector3(0, 0, -1)).dot(scale));
@@ -356,7 +356,7 @@ public:
 		e.type = (p_box_type == BOX_TYPE_DECAL) ? ELEMENT_TYPE_DECAL : ELEMENT_TYPE_REFLECTION_PROBE;
 		e.original_index = cluster_count_by_type[e.type];
 
-		RendererStorageRD::store_transform_transposed_3x4(xform, e.transform_inv);
+		RendererRD::MaterialStorage::store_transform_transposed_3x4(xform, e.transform_inv);
 
 		cluster_count_by_type[e.type]++;
 		render_element_count++;
@@ -375,4 +375,4 @@ public:
 	~ClusterBuilderRD();
 };
 
-#endif // CLUSTER_BUILDER_H
+#endif // CLUSTER_BUILDER_RD_H

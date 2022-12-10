@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,15 +31,14 @@
 #ifndef GDSCRIPT_PARSER_H
 #define GDSCRIPT_PARSER_H
 
-#include "core/io/multiplayer_api.h"
 #include "core/io/resource.h"
-#include "core/object/reference.h"
+#include "core/object/ref_counted.h"
 #include "core/object/script_language.h"
 #include "core/string/string_name.h"
 #include "core/string/ustring.h"
 #include "core/templates/hash_map.h"
 #include "core/templates/list.h"
-#include "core/templates/map.h"
+#include "core/templates/rb_map.h"
 #include "core/templates/vector.h"
 #include "core/variant/variant.h"
 #include "gdscript_cache.h"
@@ -76,6 +75,7 @@ public:
 	struct GetNodeNode;
 	struct IdentifierNode;
 	struct IfNode;
+	struct LambdaNode;
 	struct LiteralNode;
 	struct MatchNode;
 	struct MatchBranchNode;
@@ -105,8 +105,7 @@ public:
 			NATIVE,
 			SCRIPT,
 			CLASS, // GDScript.
-			ENUM, // Full enumeration.
-			ENUM_VALUE, // Value from enumeration.
+			ENUM, // Enumeration.
 			VARIANT, // Can be any type.
 			UNRESOLVED,
 		};
@@ -132,7 +131,7 @@ public:
 		ClassNode *class_type = nullptr;
 
 		MethodInfo method_info; // For callable/signals.
-		Map<StringName, int> enum_values; // For enums.
+		HashMap<StringName, int64_t> enum_values; // For enums.
 
 		_FORCE_INLINE_ bool is_set() const { return kind != UNRESOLVED; }
 		_FORCE_INLINE_ bool has_no_type() const { return type_source == UNDETECTED; }
@@ -160,6 +159,10 @@ public:
 			container_element_type = nullptr;
 		}
 
+		bool is_typed_container_type() const;
+
+		GDScriptParser::DataType get_typed_container_type() const;
+
 		bool operator==(const DataType &p_other) const {
 			if (type_source == UNDETECTED || p_other.type_source == UNDETECTED) {
 				return true; // Can be consireded equal for parsing purposes.
@@ -180,8 +183,6 @@ public:
 					return builtin_type == p_other.builtin_type;
 				case NATIVE:
 				case ENUM:
-					return native_type == p_other.native_type;
-				case ENUM_VALUE:
 					return native_type == p_other.native_type && enum_type == p_other.enum_type;
 				case SCRIPT:
 					return script_type == p_other.script_type;
@@ -198,7 +199,7 @@ public:
 			return !(this->operator==(p_other));
 		}
 
-		DataType &operator=(const DataType &p_other) {
+		void operator=(const DataType &p_other) {
 			kind = p_other.kind;
 			type_source = p_other.type_source;
 			is_constant = p_other.is_constant;
@@ -216,7 +217,6 @@ public:
 			if (p_other.has_container_element_type()) {
 				set_container_element_type(p_other.get_container_element_type());
 			}
-			return *this;
 		}
 
 		DataType() = default;
@@ -267,6 +267,7 @@ public:
 			GET_NODE,
 			IDENTIFIER,
 			IF,
+			LAMBDA,
 			LITERAL,
 			MATCH,
 			MATCH_BRANCH,
@@ -292,6 +293,7 @@ public:
 		int leftmost_column = 0, rightmost_column = 0;
 		Node *next = nullptr;
 		List<AnnotationNode *> annotations;
+		Vector<uint32_t> ignored_warnings;
 
 		DataType datatype;
 
@@ -309,7 +311,7 @@ public:
 		bool is_constant = false;
 		Variant reduced_value;
 
-		virtual bool is_expression() const { return true; }
+		virtual bool is_expression() const override { return true; }
 		virtual ~ExpressionNode() {}
 
 	protected:
@@ -322,6 +324,7 @@ public:
 		Vector<Variant> resolved_arguments;
 
 		AnnotationInfo *info = nullptr;
+		PropertyInfo export_info;
 
 		bool apply(GDScriptParser *p_this, Node *p_target) const;
 		bool applies_to(uint32_t p_target_kinds) const;
@@ -357,6 +360,7 @@ public:
 			OP_MULTIPLICATION,
 			OP_DIVISION,
 			OP_MODULO,
+			OP_POWER,
 			OP_BIT_SHIFT_LEFT,
 			OP_BIT_SHIFT_RIGHT,
 			OP_BIT_AND,
@@ -368,6 +372,7 @@ public:
 		Variant::Operator variant_op = Variant::OP_MAX;
 		ExpressionNode *assignee = nullptr;
 		ExpressionNode *assigned_value = nullptr;
+		bool use_conversion_assign = false;
 
 		AssignmentNode() {
 			type = ASSIGNMENT;
@@ -389,6 +394,7 @@ public:
 			OP_MULTIPLICATION,
 			OP_DIVISION,
 			OP_MODULO,
+			OP_POWER,
 			OP_BIT_LEFT_SHIFT,
 			OP_BIT_RIGHT_SHIFT,
 			OP_BIT_AND,
@@ -463,7 +469,7 @@ public:
 			EnumNode *parent_enum = nullptr;
 			int index = -1;
 			bool resolved = false;
-			int value = 0;
+			int64_t value = 0;
 			int line = 0;
 			int leftmost_column = 0;
 			int rightmost_column = 0;
@@ -494,6 +500,7 @@ public:
 				VARIABLE,
 				ENUM,
 				ENUM_VALUE, // For unnamed enums.
+				GROUP, // For member grouping.
 			};
 
 			Type type = UNDEFINED;
@@ -505,6 +512,7 @@ public:
 				SignalNode *signal;
 				VariableNode *variable;
 				EnumNode *m_enum;
+				AnnotationNode *annotation;
 			};
 			EnumNode::Value enum_value;
 
@@ -526,6 +534,8 @@ public:
 						return "enum";
 					case ENUM_VALUE:
 						return "enum value";
+					case GROUP:
+						return "group";
 				}
 				return "";
 			}
@@ -546,6 +556,8 @@ public:
 						return m_enum->start_line;
 					case SIGNAL:
 						return signal->start_line;
+					case GROUP:
+						return annotation->start_line;
 					case UNDEFINED:
 						ERR_FAIL_V_MSG(-1, "Reaching undefined member type.");
 				}
@@ -566,19 +578,22 @@ public:
 						return m_enum->get_datatype();
 					case ENUM_VALUE: {
 						// Always integer.
-						DataType type;
-						type.type_source = DataType::ANNOTATED_EXPLICIT;
-						type.kind = DataType::BUILTIN;
-						type.builtin_type = Variant::INT;
-						return type;
+						DataType out_type;
+						out_type.type_source = DataType::ANNOTATED_EXPLICIT;
+						out_type.kind = DataType::BUILTIN;
+						out_type.builtin_type = Variant::INT;
+						return out_type;
 					}
 					case SIGNAL: {
-						DataType type;
-						type.type_source = DataType::ANNOTATED_EXPLICIT;
-						type.kind = DataType::BUILTIN;
-						type.builtin_type = Variant::SIGNAL;
+						DataType out_type;
+						out_type.type_source = DataType::ANNOTATED_EXPLICIT;
+						out_type.kind = DataType::BUILTIN;
+						out_type.builtin_type = Variant::SIGNAL;
 						// TODO: Add parameter info.
-						return type;
+						return out_type;
+					}
+					case GROUP: {
+						return DataType();
 					}
 					case UNDEFINED:
 						return DataType();
@@ -615,6 +630,10 @@ public:
 			Member(const EnumNode::Value &p_enum_value) {
 				type = ENUM_VALUE;
 				enum_value = p_enum_value;
+			}
+			Member(AnnotationNode *p_annotation) {
+				type = GROUP;
+				annotation = p_annotation;
 			}
 		};
 
@@ -661,6 +680,10 @@ public:
 		void add_member(const EnumNode::Value &p_enum_value) {
 			members_indices[p_enum_value.identifier->name] = members.size();
 			members.push_back(Member(p_enum_value));
+		}
+		void add_member_group(AnnotationNode *p_annotation_node) {
+			members_indices[p_annotation_node->export_info.name] = members.size();
+			members.push_back(Member(p_annotation_node));
 		}
 
 		ClassNode() {
@@ -726,8 +749,9 @@ public:
 		SuiteNode *body = nullptr;
 		bool is_static = false;
 		bool is_coroutine = false;
-		MultiplayerAPI::RPCMode rpc_mode = MultiplayerAPI::RPC_MODE_DISABLED;
+		Variant rpc_config;
 		MethodInfo info;
+		LambdaNode *source_lambda = nullptr;
 #ifdef TOOLS_ENABLED
 		Vector<Variant> default_arg_values;
 		String doc_description;
@@ -742,8 +766,10 @@ public:
 	};
 
 	struct GetNodeNode : public ExpressionNode {
-		LiteralNode *string = nullptr;
-		Vector<IdentifierNode *> chain;
+		String full_path;
+#ifdef DEBUG_ENABLED
+		bool use_dollar = true;
+#endif
 
 		GetNodeNode() {
 			type = GET_NODE;
@@ -760,8 +786,10 @@ public:
 			LOCAL_VARIABLE,
 			LOCAL_ITERATOR, // `for` loop iterator.
 			LOCAL_BIND, // Pattern bind.
+			MEMBER_SIGNAL,
 			MEMBER_VARIABLE,
 			MEMBER_CONSTANT,
+			INHERITED_VARIABLE,
 		};
 		Source source = UNDEFINED_SOURCE;
 
@@ -771,6 +799,7 @@ public:
 			VariableNode *variable_source;
 			IdentifierNode *bind_source;
 		};
+		FunctionNode *source_function = nullptr;
 
 		int usages = 0; // Useful for binds/iterator variable.
 
@@ -786,6 +815,22 @@ public:
 
 		IfNode() {
 			type = IF;
+		}
+	};
+
+	struct LambdaNode : public ExpressionNode {
+		FunctionNode *function = nullptr;
+		FunctionNode *parent_function = nullptr;
+		Vector<IdentifierNode *> captures;
+		HashMap<StringName, int> captures_indices;
+		bool use_self = false;
+
+		bool has_name() const {
+			return function && function->identifier;
+		}
+
+		LambdaNode() {
+			type = LAMBDA;
 		}
 	};
 
@@ -942,6 +987,7 @@ public:
 				IdentifierNode *bind;
 			};
 			StringName name;
+			FunctionNode *source_function = nullptr;
 
 			int start_line = 0, end_line = 0;
 			int start_column = 0, end_column = 0;
@@ -951,10 +997,11 @@ public:
 			String get_name() const;
 
 			Local() {}
-			Local(ConstantNode *p_constant) {
+			Local(ConstantNode *p_constant, FunctionNode *p_source_function) {
 				type = CONSTANT;
 				constant = p_constant;
 				name = p_constant->identifier->name;
+				source_function = p_source_function;
 
 				start_line = p_constant->start_line;
 				end_line = p_constant->end_line;
@@ -963,10 +1010,11 @@ public:
 				leftmost_column = p_constant->leftmost_column;
 				rightmost_column = p_constant->rightmost_column;
 			}
-			Local(VariableNode *p_variable) {
+			Local(VariableNode *p_variable, FunctionNode *p_source_function) {
 				type = VARIABLE;
 				variable = p_variable;
 				name = p_variable->identifier->name;
+				source_function = p_source_function;
 
 				start_line = p_variable->start_line;
 				end_line = p_variable->end_line;
@@ -975,10 +1023,11 @@ public:
 				leftmost_column = p_variable->leftmost_column;
 				rightmost_column = p_variable->rightmost_column;
 			}
-			Local(ParameterNode *p_parameter) {
+			Local(ParameterNode *p_parameter, FunctionNode *p_source_function) {
 				type = PARAMETER;
 				parameter = p_parameter;
 				name = p_parameter->identifier->name;
+				source_function = p_source_function;
 
 				start_line = p_parameter->start_line;
 				end_line = p_parameter->end_line;
@@ -987,10 +1036,11 @@ public:
 				leftmost_column = p_parameter->leftmost_column;
 				rightmost_column = p_parameter->rightmost_column;
 			}
-			Local(IdentifierNode *p_identifier) {
+			Local(IdentifierNode *p_identifier, FunctionNode *p_source_function) {
 				type = FOR_VARIABLE;
 				bind = p_identifier;
 				name = p_identifier->name;
+				source_function = p_source_function;
 
 				start_line = p_identifier->start_line;
 				end_line = p_identifier->end_line;
@@ -1005,19 +1055,19 @@ public:
 		HashMap<StringName, int> locals_indices;
 
 		FunctionNode *parent_function = nullptr;
-		ForNode *parent_for = nullptr;
 		IfNode *parent_if = nullptr;
 
 		bool has_return = false;
 		bool has_continue = false;
 		bool has_unreachable_code = false; // Just so warnings aren't given more than once per block.
+		bool is_loop = false;
 
 		bool has_local(const StringName &p_name) const;
 		const Local &get_local(const StringName &p_name) const;
 		template <class T>
-		void add_local(T *p_local) {
+		void add_local(T *p_local, FunctionNode *p_source_function) {
 			locals_indices[p_local->identifier->name] = locals.size();
-			locals.push_back(Local(p_local));
+			locals.push_back(Local(p_local, p_source_function));
 		}
 		void add_local(const Local &p_local) {
 			locals_indices[p_local.name] = locals.size();
@@ -1080,21 +1130,21 @@ public:
 
 		PropertyStyle property = PROP_NONE;
 		union {
-			SuiteNode *setter = nullptr;
+			FunctionNode *setter = nullptr;
 			IdentifierNode *setter_pointer;
 		};
 		IdentifierNode *setter_parameter = nullptr;
 		union {
-			SuiteNode *getter = nullptr;
+			FunctionNode *getter = nullptr;
 			IdentifierNode *getter_pointer;
 		};
 
 		bool exported = false;
 		bool onready = false;
 		PropertyInfo export_info;
-		MultiplayerAPI::RPCMode rpc_mode = MultiplayerAPI::RPC_MODE_DISABLED;
 		int assignments = 0;
 		int usages = 0;
+		bool use_conversion_assign = false;
 #ifdef TOOLS_ENABLED
 		String doc_description;
 #endif // TOOLS_ENABLED
@@ -1120,7 +1170,7 @@ public:
 		COMPLETION_ASSIGN, // Assignment based on type (e.g. enum values).
 		COMPLETION_ATTRIBUTE, // After id.| to look for members.
 		COMPLETION_ATTRIBUTE_METHOD, // After id.| to look for methods.
-		COMPLETION_BUILT_IN_TYPE_CONSTANT, // Constants inside a built-in type (e.g. Color.blue).
+		COMPLETION_BUILT_IN_TYPE_CONSTANT_OR_STATIC_METHOD, // Constants inside a built-in type (e.g. Color.BLUE) or static methods (e.g. Color.html).
 		COMPLETION_CALL_ARGUMENTS, // Complete with nodes, input actions, enum values (or usual expressions).
 		// TODO: COMPLETION_DECLARATION, // Potential declaration (var, const, func).
 		COMPLETION_GET_NODE, // Get node with $ notation.
@@ -1167,16 +1217,18 @@ private:
 	bool can_break = false;
 	bool can_continue = false;
 	bool is_continue_match = false; // Whether a `continue` will act on a `match`.
-	bool is_ignoring_warnings = false;
 	List<bool> multiline_stack;
 
 	ClassNode *head = nullptr;
 	Node *list = nullptr;
 	List<ParserError> errors;
+
 #ifdef DEBUG_ENABLED
+	bool is_ignoring_warnings = false;
 	List<GDScriptWarning> warnings;
-	Set<String> ignored_warnings;
-	Set<int> unsafe_lines;
+	HashSet<String> ignored_warnings;
+	HashSet<uint32_t> ignored_warning_codes;
+	HashSet<int> unsafe_lines;
 #endif
 
 	GDScriptTokenizer tokenizer;
@@ -1191,6 +1243,8 @@ private:
 	CompletionCall completion_call;
 	List<CompletionCall> completion_call_stack;
 	bool passed_cursor = false;
+	bool in_lambda = false;
+	bool lambda_ended = false; // Marker for when a lambda ends, to apply an end of statement if needed.
 
 	typedef bool (GDScriptParser::*AnnotationAction)(const AnnotationNode *p_annotation, Node *p_target);
 	struct AnnotationInfo {
@@ -1203,6 +1257,7 @@ private:
 			SIGNAL = 1 << 4,
 			FUNCTION = 1 << 5,
 			STATEMENT = 1 << 6,
+			STANDALONE = 1 << 7,
 			CLASS_LEVEL = CLASS | VARIABLE | FUNCTION,
 		};
 		uint32_t target_kind = 0; // Flags.
@@ -1232,6 +1287,7 @@ private:
 		PREC_FACTOR,
 		PREC_SIGN,
 		PREC_BIT_NOT,
+		PREC_POWER,
 		PREC_TYPE_TEST,
 		PREC_AWAIT,
 		PREC_CALL,
@@ -1246,6 +1302,12 @@ private:
 	};
 	static ParseRule *get_rule(GDScriptTokenizer::Token::Type p_token_type);
 
+	List<Node *> nodes_in_progress;
+	void complete_extents(Node *p_node);
+	void update_extents(Node *p_node);
+	void reset_extents(Node *p_node, GDScriptTokenizer::Token p_token);
+	void reset_extents(Node *p_node, Node *p_from);
+
 	template <class T>
 	T *alloc_node() {
 		T *node = memnew(T);
@@ -1253,13 +1315,8 @@ private:
 		node->next = list;
 		list = node;
 
-		// TODO: Properly set positions for all nodes.
-		node->start_line = previous.start_line;
-		node->end_line = previous.end_line;
-		node->start_column = previous.start_column;
-		node->end_column = previous.end_column;
-		node->leftmost_column = previous.leftmost_column;
-		node->rightmost_column = previous.rightmost_column;
+		reset_extents(node, previous);
+		nodes_in_progress.push_back(node);
 
 		return node;
 	}
@@ -1278,10 +1335,11 @@ private:
 
 	GDScriptTokenizer::Token advance();
 	bool match(GDScriptTokenizer::Token::Type p_token_type);
-	bool check(GDScriptTokenizer::Token::Type p_token_type);
+	bool check(GDScriptTokenizer::Token::Type p_token_type) const;
 	bool consume(GDScriptTokenizer::Token::Type p_token_type, const String &p_error_message);
-	bool is_at_end();
-	bool is_statement_end();
+	bool is_at_end() const;
+	bool is_statement_end_token() const;
+	bool is_statement_end() const;
 	void end_statement(const String &p_context);
 	void synchronize();
 	void push_multiline(bool p_state);
@@ -1292,17 +1350,18 @@ private:
 	ClassNode *parse_class();
 	void parse_class_name();
 	void parse_extends();
-	void parse_class_body();
+	void parse_class_body(bool p_is_multiline);
 	template <class T>
 	void parse_class_member(T *(GDScriptParser::*p_parse_function)(), AnnotationInfo::TargetKind p_target, const String &p_member_kind);
 	SignalNode *parse_signal();
 	EnumNode *parse_enum();
 	ParameterNode *parse_parameter();
 	FunctionNode *parse_function();
-	SuiteNode *parse_suite(const String &p_context, SuiteNode *p_suite = nullptr);
+	void parse_function_signature(FunctionNode *p_function, SuiteNode *p_body, const String &p_type);
+	SuiteNode *parse_suite(const String &p_context, SuiteNode *p_suite = nullptr, bool p_for_lambda = false);
 	// Annotations
 	AnnotationNode *parse_annotation(uint32_t p_valid_targets);
-	bool register_annotation(const MethodInfo &p_info, uint32_t p_target_kinds, AnnotationAction p_apply, int p_optional_arguments = 0, bool p_is_vararg = false);
+	bool register_annotation(const MethodInfo &p_info, uint32_t p_target_kinds, AnnotationAction p_apply, const Vector<Variant> &p_default_arguments = Vector<Variant>(), bool p_is_vararg = false);
 	bool validate_annotation_arguments(AnnotationNode *p_annotation);
 	void clear_unused_annotations();
 	bool tool_annotation(const AnnotationNode *p_annotation, Node *p_target);
@@ -1310,9 +1369,10 @@ private:
 	bool onready_annotation(const AnnotationNode *p_annotation, Node *p_target);
 	template <PropertyHint t_hint, Variant::Type t_type>
 	bool export_annotations(const AnnotationNode *p_annotation, Node *p_target);
+	template <PropertyUsageFlags t_usage>
+	bool export_group_annotations(const AnnotationNode *p_annotation, Node *p_target);
 	bool warning_annotations(const AnnotationNode *p_annotation, Node *p_target);
-	template <MultiplayerAPI::RPCMode t_mode>
-	bool network_annotations(const AnnotationNode *p_annotation, Node *p_target);
+	bool rpc_annotation(const AnnotationNode *p_annotation, Node *p_target);
 	// Statements.
 	Node *parse_statement();
 	VariableNode *parse_variable();
@@ -1354,6 +1414,8 @@ private:
 	ExpressionNode *parse_await(ExpressionNode *p_previous_operand, bool p_can_assign);
 	ExpressionNode *parse_attribute(ExpressionNode *p_previous_operand, bool p_can_assign);
 	ExpressionNode *parse_subscript(ExpressionNode *p_previous_operand, bool p_can_assign);
+	ExpressionNode *parse_lambda(ExpressionNode *p_previous_operand, bool p_can_assign);
+	ExpressionNode *parse_yield(ExpressionNode *p_previous_operand, bool p_can_assign);
 	ExpressionNode *parse_invalid_token(ExpressionNode *p_previous_operand, bool p_can_assign);
 	TypeNode *parse_type(bool p_allow_void = false);
 #ifdef TOOLS_ENABLED
@@ -1369,11 +1431,11 @@ public:
 	ClassNode *get_tree() const { return head; }
 	bool is_tool() const { return _is_tool; }
 	static Variant::Type get_builtin_type(const StringName &p_type);
-	static StringName get_real_class_name(const StringName &p_source);
 
 	CompletionContext get_completion_context() const { return completion_context; }
 	CompletionCall get_completion_call() const { return completion_call; }
 	void get_annotation_list(List<MethodInfo> *r_annotations) const;
+	bool annotation_exists(const String &p_annotation_name) const;
 
 	const List<ParserError> &get_errors() const { return errors; }
 	const List<String> get_dependencies() const {
@@ -1382,7 +1444,7 @@ public:
 	}
 #ifdef DEBUG_ENABLED
 	const List<GDScriptWarning> &get_warnings() const { return warnings; }
-	const Set<int> &get_unsafe_lines() const { return unsafe_lines; }
+	const HashSet<int> &get_unsafe_lines() const { return unsafe_lines; }
 	int get_last_line_number() const { return current.end_line; }
 #endif
 
@@ -1401,7 +1463,7 @@ public:
 		void push_line(const String &p_line = String());
 		void push_text(const String &p_text);
 
-		void print_annotation(AnnotationNode *p_annotation);
+		void print_annotation(const AnnotationNode *p_annotation);
 		void print_array(ArrayNode *p_array);
 		void print_assert(AssertNode *p_assert);
 		void print_assignment(AssignmentNode *p_assignment);
@@ -1415,10 +1477,11 @@ public:
 		void print_expression(ExpressionNode *p_expression);
 		void print_enum(EnumNode *p_enum);
 		void print_for(ForNode *p_for);
-		void print_function(FunctionNode *p_function);
+		void print_function(FunctionNode *p_function, const String &p_context = "Function");
 		void print_get_node(GetNodeNode *p_get_node);
 		void print_if(IfNode *p_if, bool p_is_elif = false);
 		void print_identifier(IdentifierNode *p_identifier);
+		void print_lambda(LambdaNode *p_lambda);
 		void print_literal(LiteralNode *p_literal);
 		void print_match(MatchNode *p_match);
 		void print_match_branch(MatchBranchNode *p_match_branch);

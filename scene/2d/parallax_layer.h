@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -43,8 +43,6 @@ class ParallaxLayer : public Node2D {
 	Vector2 mirroring;
 	void _update_mirroring();
 
-	Point2 screen_offset;
-
 protected:
 	void _notification(int p_what);
 	static void _bind_methods();
@@ -59,9 +57,9 @@ public:
 	void set_mirroring(const Size2 &p_mirroring);
 	Size2 get_mirroring() const;
 
-	void set_base_offset_and_scale(const Point2 &p_offset, real_t p_scale, const Point2 &p_screen_offset);
+	void set_base_offset_and_scale(const Point2 &p_offset, real_t p_scale);
 
-	virtual String get_configuration_warning() const override;
+	PackedStringArray get_configuration_warnings() const override;
 	ParallaxLayer();
 };
 

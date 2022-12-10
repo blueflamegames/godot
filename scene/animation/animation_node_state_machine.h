@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,6 +31,7 @@
 #ifndef ANIMATION_NODE_STATE_MACHINE_H
 #define ANIMATION_NODE_STATE_MACHINE_H
 
+#include "core/math/expression.h"
 #include "scene/animation/animation_tree.h"
 
 class AnimationNodeStateMachineTransition : public Resource {
@@ -48,9 +49,14 @@ private:
 	bool auto_advance = false;
 	StringName advance_condition;
 	StringName advance_condition_name;
-	float xfade = 0.0;
+	float xfade_time = 0.0;
+	Ref<Curve> xfade_curve;
 	bool disabled = false;
 	int priority = 1;
+	String advance_expression;
+
+	friend class AnimationNodeStateMachinePlayback;
+	Ref<Expression> expression;
 
 protected:
 	static void _bind_methods();
@@ -67,8 +73,14 @@ public:
 
 	StringName get_advance_condition_name() const;
 
+	void set_advance_expression(const String &p_expression);
+	String get_advance_expression() const;
+
 	void set_xfade_time(float p_xfade);
 	float get_xfade_time() const;
+
+	void set_xfade_curve(const Ref<Curve> &p_curve);
+	Ref<Curve> get_xfade_curve() const;
 
 	void set_disabled(bool p_disabled);
 	bool is_disabled() const;
@@ -93,13 +105,20 @@ class AnimationNodeStateMachinePlayback : public Resource {
 		StringName prev;
 	};
 
-	float len_total = 0.0;
+	struct Transition {
+		StringName from;
+		StringName to;
+		StringName next;
+	};
 
 	float len_current = 0.0;
 	float pos_current = 0.0;
-	int loops_current = 0;
+	bool end_loop = false;
 
 	StringName current;
+	Transition current_transition;
+	Ref<Curve> current_curve;
+	bool force_auto_advance = false;
 
 	StringName fading_from;
 	float fading_time = 0.0;
@@ -114,7 +133,9 @@ class AnimationNodeStateMachinePlayback : public Resource {
 
 	bool _travel(AnimationNodeStateMachine *p_state_machine, const StringName &p_travel);
 
-	float process(AnimationNodeStateMachine *p_state_machine, float p_time, bool p_seek);
+	double process(AnimationNodeStateMachine *p_state_machine, double p_time, bool p_seek, bool p_is_external_seeking);
+
+	bool _check_advance_condition(const Ref<AnimationNodeStateMachine> p_state_machine, const Ref<AnimationNodeStateMachineTransition> p_transition) const;
 
 protected:
 	static void _bind_methods();
@@ -144,36 +165,45 @@ private:
 		Vector2 position;
 	};
 
-	Map<StringName, State> states;
+	HashMap<StringName, State> states;
 
 	struct Transition {
 		StringName from;
 		StringName to;
+		StringName local_from;
+		StringName local_to;
 		Ref<AnimationNodeStateMachineTransition> transition;
 	};
 
 	Vector<Transition> transitions;
 
 	StringName playback = "playback";
-
-	StringName start_node;
-	StringName end_node;
+	StringName state_machine_name;
+	AnimationNodeStateMachine *prev_state_machine = nullptr;
+	bool updating_transitions = false;
 
 	Vector2 graph_offset;
 
 	void _tree_changed();
+	void _remove_transition(const Ref<AnimationNodeStateMachineTransition> p_transition);
+	void _rename_transitions(const StringName &p_name, const StringName &p_new_name);
+	bool _can_connect(const StringName &p_name, Vector<AnimationNodeStateMachine *> p_parents = Vector<AnimationNodeStateMachine *>());
+	StringName _get_shortest_path(const StringName &p_path) const;
 
 protected:
-	void _notification(int p_what);
 	static void _bind_methods();
 
 	bool _set(const StringName &p_name, const Variant &p_value);
 	bool _get(const StringName &p_name, Variant &r_ret) const;
 	void _get_property_list(List<PropertyInfo> *p_list) const;
+	bool _check_advance_condition(const Ref<AnimationNodeStateMachine> p_state_machine, const Ref<AnimationNodeStateMachineTransition> p_transition) const;
 
 	virtual void reset_state() override;
 
 public:
+	StringName start_node = "Start";
+	StringName end_node = "End";
+
 	virtual void get_parameter_list(List<PropertyInfo> *r_list) const override;
 	virtual Variant get_parameter_default_value(const StringName &p_parameter) const override;
 
@@ -192,25 +222,24 @@ public:
 	virtual void get_child_nodes(List<ChildNode> *r_child_nodes) override;
 
 	bool has_transition(const StringName &p_from, const StringName &p_to) const;
+	bool has_local_transition(const StringName &p_from, const StringName &p_to) const;
 	int find_transition(const StringName &p_from, const StringName &p_to) const;
 	void add_transition(const StringName &p_from, const StringName &p_to, const Ref<AnimationNodeStateMachineTransition> &p_transition);
 	Ref<AnimationNodeStateMachineTransition> get_transition(int p_transition) const;
 	StringName get_transition_from(int p_transition) const;
 	StringName get_transition_to(int p_transition) const;
 	int get_transition_count() const;
-	void remove_transition_by_index(int p_transition);
+	void remove_transition_by_index(const int p_transition);
 	void remove_transition(const StringName &p_from, const StringName &p_to);
 
-	void set_start_node(const StringName &p_node);
-	String get_start_node() const;
+	bool can_edit_node(const StringName &p_name) const;
 
-	void set_end_node(const StringName &p_node);
-	String get_end_node() const;
+	AnimationNodeStateMachine *get_prev_state_machine() const;
 
 	void set_graph_offset(const Vector2 &p_offset);
 	Vector2 get_graph_offset() const;
 
-	virtual float process(float p_time, bool p_seek) override;
+	virtual double process(double p_time, bool p_seek, bool p_is_external_seeking) override;
 	virtual String get_caption() const override;
 
 	virtual Ref<AnimationNode> get_child_by_name(const StringName &p_name) override;

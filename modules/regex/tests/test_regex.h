@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -46,7 +46,7 @@ TEST_CASE("[RegEx] Initialization") {
 	CHECK(re1.get_pattern() == pattern);
 	CHECK(re1.get_group_count() == 1);
 
-	Array names = re1.get_names();
+	PackedStringArray names = re1.get_names();
 	CHECK(names.size() == 1);
 	CHECK(names[0] == "vowel");
 
@@ -128,16 +128,6 @@ TEST_CASE("[RegEx] Empty Pattern") {
 	RegEx re;
 	CHECK(re.compile("") == OK);
 	CHECK(re.is_valid());
-}
-
-TEST_CASE("[RegEx] Invalid offset") {
-	const String s = "Godot";
-
-	RegEx re("o");
-	REQUIRE(re.is_valid());
-	CHECK(re.search(s, -1) == nullptr);
-	CHECK(re.search_all(s, -1).size() == 0);
-	CHECK(re.sub(s, "", true, -1) == "");
 }
 
 TEST_CASE("[RegEx] Invalid end position") {

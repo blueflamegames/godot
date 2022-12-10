@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -29,6 +29,7 @@
 /*************************************************************************/
 
 #include "height_map_shape_3d.h"
+
 #include "servers/physics_server_3d.h"
 
 Vector<Vector3> HeightMapShape3D::get_debug_mesh_lines() const {
@@ -44,7 +45,7 @@ Vector<Vector3> HeightMapShape3D::get_debug_mesh_lines() const {
 		const real_t *r = map_data.ptr();
 
 		// reserve some memory for our points..
-		points.resize(((map_width - 1) * map_depth * 2) + (map_width * (map_depth - 1) * 2));
+		points.resize(((map_width - 1) * map_depth * 2) + (map_width * (map_depth - 1) * 2) + ((map_width - 1) * (map_depth - 1) * 2));
 
 		// now set our points
 		int r_offset = 0;
@@ -62,6 +63,11 @@ Vector<Vector3> HeightMapShape3D::get_debug_mesh_lines() const {
 
 				if (d != map_depth - 1) {
 					points.write[w_offset++] = height;
+					points.write[w_offset++] = Vector3(height.x, r[r_offset + map_width - 1], height.z + 1.0);
+				}
+
+				if ((w != map_width - 1) && (d != map_depth - 1)) {
+					points.write[w_offset++] = Vector3(height.x + 1.0, r[r_offset], height.z);
 					points.write[w_offset++] = Vector3(height.x, r[r_offset + map_width - 1], height.z + 1.0);
 				}
 
@@ -138,7 +144,7 @@ int HeightMapShape3D::get_map_depth() const {
 	return map_depth;
 }
 
-void HeightMapShape3D::set_map_data(PackedFloat32Array p_new) {
+void HeightMapShape3D::set_map_data(Vector<real_t> p_new) {
 	int size = (map_width * map_depth);
 	if (p_new.size() != size) {
 		// fail
@@ -149,7 +155,7 @@ void HeightMapShape3D::set_map_data(PackedFloat32Array p_new) {
 	real_t *w = map_data.ptrw();
 	const real_t *r = p_new.ptr();
 	for (int i = 0; i < size; i++) {
-		float val = r[i];
+		real_t val = r[i];
 		w[i] = val;
 		if (i == 0) {
 			min_height = val;
@@ -169,7 +175,7 @@ void HeightMapShape3D::set_map_data(PackedFloat32Array p_new) {
 	notify_change_to_owners();
 }
 
-PackedFloat32Array HeightMapShape3D::get_map_data() const {
+Vector<real_t> HeightMapShape3D::get_map_data() const {
 	return map_data;
 }
 
@@ -181,8 +187,8 @@ void HeightMapShape3D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_map_data", "data"), &HeightMapShape3D::set_map_data);
 	ClassDB::bind_method(D_METHOD("get_map_data"), &HeightMapShape3D::get_map_data);
 
-	ADD_PROPERTY(PropertyInfo(Variant::INT, "map_width", PROPERTY_HINT_RANGE, "1,4096,1"), "set_map_width", "get_map_width");
-	ADD_PROPERTY(PropertyInfo(Variant::INT, "map_depth", PROPERTY_HINT_RANGE, "1,4096,1"), "set_map_depth", "get_map_depth");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "map_width", PROPERTY_HINT_RANGE, "0.001,100,0.001,or_greater"), "set_map_width", "get_map_width");
+	ADD_PROPERTY(PropertyInfo(Variant::INT, "map_depth", PROPERTY_HINT_RANGE, "0.001,100,0.001,or_greater"), "set_map_depth", "get_map_depth");
 	ADD_PROPERTY(PropertyInfo(Variant::PACKED_FLOAT32_ARRAY, "map_data"), "set_map_data", "get_map_data");
 }
 

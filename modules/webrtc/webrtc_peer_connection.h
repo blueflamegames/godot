@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -34,8 +34,8 @@
 #include "core/io/packet_peer.h"
 #include "modules/webrtc/webrtc_data_channel.h"
 
-class WebRTCPeerConnection : public Reference {
-	GDCLASS(WebRTCPeerConnection, Reference);
+class WebRTCPeerConnection : public RefCounted {
+	GDCLASS(WebRTCPeerConnection, RefCounted);
 
 public:
 	enum ConnectionState {
@@ -47,12 +47,33 @@ public:
 		STATE_CLOSED
 	};
 
+	enum GatheringState {
+		GATHERING_STATE_NEW,
+		GATHERING_STATE_GATHERING,
+		GATHERING_STATE_COMPLETE,
+	};
+
+	enum SignalingState {
+		SIGNALING_STATE_STABLE,
+		SIGNALING_STATE_HAVE_LOCAL_OFFER,
+		SIGNALING_STATE_HAVE_REMOTE_OFFER,
+		SIGNALING_STATE_HAVE_LOCAL_PRANSWER,
+		SIGNALING_STATE_HAVE_REMOTE_PRANSWER,
+		SIGNALING_STATE_CLOSED,
+	};
+
+private:
+	static StringName default_extension;
+
 protected:
 	static void _bind_methods();
-	static WebRTCPeerConnection *(*_create)();
 
 public:
+	static void set_default_extension(const StringName &p_name);
+
 	virtual ConnectionState get_connection_state() const = 0;
+	virtual GatheringState get_gathering_state() const = 0;
+	virtual SignalingState get_signaling_state() const = 0;
 
 	virtual Error initialize(Dictionary p_config = Dictionary()) = 0;
 	virtual Ref<WebRTCDataChannel> create_data_channel(String p_label, Dictionary p_options = Dictionary()) = 0;
@@ -63,7 +84,6 @@ public:
 	virtual Error poll() = 0;
 	virtual void close() = 0;
 
-	static Ref<WebRTCPeerConnection> create_ref();
 	static WebRTCPeerConnection *create();
 
 	WebRTCPeerConnection();
@@ -71,4 +91,7 @@ public:
 };
 
 VARIANT_ENUM_CAST(WebRTCPeerConnection::ConnectionState);
+VARIANT_ENUM_CAST(WebRTCPeerConnection::GatheringState);
+VARIANT_ENUM_CAST(WebRTCPeerConnection::SignalingState);
+
 #endif // WEBRTC_PEER_CONNECTION_H

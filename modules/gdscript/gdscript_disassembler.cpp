@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -104,10 +104,10 @@ void GDScriptFunction::disassemble(const Vector<String> &p_code_lines) const {
 		text += ": ";
 
 		// This makes the compiler complain if some opcode is unchecked in the switch.
-		Opcode code = Opcode(_code_ptr[ip] & INSTR_MASK);
+		Opcode opcode = Opcode(_code_ptr[ip] & INSTR_MASK);
 		int instr_var_args = (_code_ptr[ip] & INSTR_ARGS_MASK) >> INSTR_BITS;
 
-		switch (code) {
+		switch (opcode) {
 			case OPCODE_OPERATOR: {
 				int operation = _code_ptr[ip + 4];
 
@@ -397,7 +397,7 @@ void GDScriptFunction::disassemble(const Vector<String> &p_code_lines) const {
 				text += DADDR(1 + argc);
 				text += " = ";
 
-				text += "<unkown type>(";
+				text += "<unknown type>(";
 				for (int i = 0; i < argc; i++) {
 					if (i > 0) {
 						text += ", ";
@@ -542,6 +542,50 @@ void GDScriptFunction::disassemble(const Vector<String> &p_code_lines) const {
 
 				incr = 5 + argc;
 			} break;
+			case OPCODE_CALL_BUILTIN_STATIC: {
+				Variant::Type type = (Variant::Type)_code_ptr[ip + 1 + instr_var_args];
+				int argc = _code_ptr[ip + 3 + instr_var_args];
+
+				text += "call built-in method static ";
+				text += DADDR(1 + argc);
+				text += " = ";
+				text += Variant::get_type_name(type);
+				text += ".";
+				text += _global_names_ptr[_code_ptr[ip + 2 + instr_var_args]].operator String();
+				text += "(";
+
+				for (int i = 0; i < argc; i++) {
+					if (i > 0) {
+						text += ", ";
+					}
+					text += DADDR(1 + i);
+				}
+				text += ")";
+
+				incr += 5 + argc;
+			} break;
+			case OPCODE_CALL_NATIVE_STATIC: {
+				MethodBind *method = _methods_ptr[_code_ptr[ip + 1 + instr_var_args]];
+				int argc = _code_ptr[ip + 2 + instr_var_args];
+
+				text += "call native method static ";
+				text += DADDR(1 + argc);
+				text += " = ";
+				text += method->get_instance_class();
+				text += ".";
+				text += method->get_name();
+				text += "(";
+
+				for (int i = 0; i < argc; i++) {
+					if (i > 0) {
+						text += ", ";
+					}
+					text += DADDR(1 + i);
+				}
+				text += ")";
+
+				incr += 4 + argc;
+			} break;
 			case OPCODE_CALL_PTRCALL_NO_RETURN: {
 				text += "call-ptrcall (no return) ";
 
@@ -595,15 +639,18 @@ void GDScriptFunction::disassemble(const Vector<String> &p_code_lines) const {
 				DISASSEMBLE_PTRCALL(VECTOR3);
 				DISASSEMBLE_PTRCALL(VECTOR3I);
 				DISASSEMBLE_PTRCALL(TRANSFORM2D);
+				DISASSEMBLE_PTRCALL(VECTOR4);
+				DISASSEMBLE_PTRCALL(VECTOR4I);
 				DISASSEMBLE_PTRCALL(PLANE);
 				DISASSEMBLE_PTRCALL(AABB);
 				DISASSEMBLE_PTRCALL(BASIS);
-				DISASSEMBLE_PTRCALL(TRANSFORM);
+				DISASSEMBLE_PTRCALL(TRANSFORM3D);
+				DISASSEMBLE_PTRCALL(PROJECTION);
 				DISASSEMBLE_PTRCALL(COLOR);
 				DISASSEMBLE_PTRCALL(STRING_NAME);
 				DISASSEMBLE_PTRCALL(NODE_PATH);
 				DISASSEMBLE_PTRCALL(RID);
-				DISASSEMBLE_PTRCALL(QUAT);
+				DISASSEMBLE_PTRCALL(QUATERNION);
 				DISASSEMBLE_PTRCALL(OBJECT);
 				DISASSEMBLE_PTRCALL(CALLABLE);
 				DISASSEMBLE_PTRCALL(SIGNAL);
@@ -666,7 +713,7 @@ void GDScriptFunction::disassemble(const Vector<String> &p_code_lines) const {
 				int argc = _code_ptr[ip + 1 + instr_var_args];
 				text += DADDR(1 + argc) + " = ";
 
-				text += "<unkown function>";
+				text += "<unknown function>";
 				text += "(";
 
 				for (int i = 0; i < argc; i++) {
@@ -721,13 +768,51 @@ void GDScriptFunction::disassemble(const Vector<String> &p_code_lines) const {
 				text += "await ";
 				text += DADDR(1);
 
-				incr += 2;
+				incr = 2;
 			} break;
 			case OPCODE_AWAIT_RESUME: {
 				text += "await resume ";
 				text += DADDR(1);
 
 				incr = 2;
+			} break;
+			case OPCODE_CREATE_LAMBDA: {
+				int captures_count = _code_ptr[ip + 1 + instr_var_args];
+				GDScriptFunction *lambda = _lambdas_ptr[_code_ptr[ip + 2 + instr_var_args]];
+
+				text += DADDR(1 + captures_count);
+				text += "create lambda from ";
+				text += lambda->name.operator String();
+				text += "function, captures (";
+
+				for (int i = 0; i < captures_count; i++) {
+					if (i > 0) {
+						text += ", ";
+					}
+					text += DADDR(1 + i);
+				}
+				text += ")";
+
+				incr = 3 + captures_count;
+			} break;
+			case OPCODE_CREATE_SELF_LAMBDA: {
+				int captures_count = _code_ptr[ip + 1 + instr_var_args];
+				GDScriptFunction *lambda = _lambdas_ptr[_code_ptr[ip + 2 + instr_var_args]];
+
+				text += DADDR(1 + captures_count);
+				text += "create self lambda from ";
+				text += lambda->name.operator String();
+				text += "function, captures (";
+
+				for (int i = 0; i < captures_count; i++) {
+					if (i > 0) {
+						text += ", ";
+					}
+					text += DADDR(1 + i);
+				}
+				text += ")";
+
+				incr = 3 + captures_count;
 			} break;
 			case OPCODE_JUMP: {
 				text += "jump ";
@@ -755,6 +840,14 @@ void GDScriptFunction::disassemble(const Vector<String> &p_code_lines) const {
 				text += "jump-to-default-argument ";
 
 				incr = 1;
+			} break;
+			case OPCODE_JUMP_IF_SHARED: {
+				text += "jump-if-shared ";
+				text += DADDR(1);
+				text += " to ";
+				text += itos(_code_ptr[ip + 2]);
+
+				incr = 3;
 			} break;
 			case OPCODE_RETURN: {
 				text += "return ";
@@ -873,6 +966,14 @@ void GDScriptFunction::disassemble(const Vector<String> &p_code_lines) const {
 				incr += 5;
 			} break;
 				DISASSEMBLE_ITERATE_TYPES(DISASSEMBLE_ITERATE);
+			case OPCODE_STORE_GLOBAL: {
+				text += "store global ";
+				text += DADDR(1);
+				text += " = ";
+				text += String::num_int64(_code_ptr[ip + 2]);
+
+				incr += 3;
+			} break;
 			case OPCODE_STORE_NAMED_GLOBAL: {
 				text += "store named global ";
 				text += DADDR(1);
@@ -894,6 +995,54 @@ void GDScriptFunction::disassemble(const Vector<String> &p_code_lines) const {
 
 				incr += 2;
 			} break;
+
+#define DISASSEMBLE_TYPE_ADJUST(m_v_type) \
+	case OPCODE_TYPE_ADJUST_##m_v_type: { \
+		text += "type adjust (";          \
+		text += #m_v_type;                \
+		text += ") ";                     \
+		text += DADDR(1);                 \
+		incr += 2;                        \
+	} break
+
+				DISASSEMBLE_TYPE_ADJUST(BOOL);
+				DISASSEMBLE_TYPE_ADJUST(INT);
+				DISASSEMBLE_TYPE_ADJUST(FLOAT);
+				DISASSEMBLE_TYPE_ADJUST(STRING);
+				DISASSEMBLE_TYPE_ADJUST(VECTOR2);
+				DISASSEMBLE_TYPE_ADJUST(VECTOR2I);
+				DISASSEMBLE_TYPE_ADJUST(RECT2);
+				DISASSEMBLE_TYPE_ADJUST(RECT2I);
+				DISASSEMBLE_TYPE_ADJUST(VECTOR3);
+				DISASSEMBLE_TYPE_ADJUST(VECTOR3I);
+				DISASSEMBLE_TYPE_ADJUST(TRANSFORM2D);
+				DISASSEMBLE_TYPE_ADJUST(VECTOR4);
+				DISASSEMBLE_TYPE_ADJUST(VECTOR4I);
+				DISASSEMBLE_TYPE_ADJUST(PLANE);
+				DISASSEMBLE_TYPE_ADJUST(QUATERNION);
+				DISASSEMBLE_TYPE_ADJUST(AABB);
+				DISASSEMBLE_TYPE_ADJUST(BASIS);
+				DISASSEMBLE_TYPE_ADJUST(TRANSFORM3D);
+				DISASSEMBLE_TYPE_ADJUST(PROJECTION);
+				DISASSEMBLE_TYPE_ADJUST(COLOR);
+				DISASSEMBLE_TYPE_ADJUST(STRING_NAME);
+				DISASSEMBLE_TYPE_ADJUST(NODE_PATH);
+				DISASSEMBLE_TYPE_ADJUST(RID);
+				DISASSEMBLE_TYPE_ADJUST(OBJECT);
+				DISASSEMBLE_TYPE_ADJUST(CALLABLE);
+				DISASSEMBLE_TYPE_ADJUST(SIGNAL);
+				DISASSEMBLE_TYPE_ADJUST(DICTIONARY);
+				DISASSEMBLE_TYPE_ADJUST(ARRAY);
+				DISASSEMBLE_TYPE_ADJUST(PACKED_BYTE_ARRAY);
+				DISASSEMBLE_TYPE_ADJUST(PACKED_INT32_ARRAY);
+				DISASSEMBLE_TYPE_ADJUST(PACKED_INT64_ARRAY);
+				DISASSEMBLE_TYPE_ADJUST(PACKED_FLOAT32_ARRAY);
+				DISASSEMBLE_TYPE_ADJUST(PACKED_FLOAT64_ARRAY);
+				DISASSEMBLE_TYPE_ADJUST(PACKED_STRING_ARRAY);
+				DISASSEMBLE_TYPE_ADJUST(PACKED_VECTOR2_ARRAY);
+				DISASSEMBLE_TYPE_ADJUST(PACKED_VECTOR3_ARRAY);
+				DISASSEMBLE_TYPE_ADJUST(PACKED_COLOR_ARRAY);
+
 			case OPCODE_ASSERT: {
 				text += "assert (";
 				text += DADDR(1);

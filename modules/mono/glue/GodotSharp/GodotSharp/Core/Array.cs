@@ -1,161 +1,437 @@
 using System;
 using System.Collections.Generic;
 using System.Collections;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
+using Godot.NativeInterop;
 
 namespace Godot.Collections
 {
-    class ArraySafeHandle : SafeHandle
+    /// <summary>
+    /// Wrapper around Godot's Array class, an array of Variant
+    /// typed elements allocated in the engine in C++. Useful when
+    /// interfacing with the engine. Otherwise prefer .NET collections
+    /// such as <see cref="System.Array"/> or <see cref="List{T}"/>.
+    /// </summary>
+    public sealed class Array :
+        IList<Variant>,
+        IReadOnlyList<Variant>,
+        ICollection,
+        IDisposable
     {
-        public ArraySafeHandle(IntPtr handle) : base(IntPtr.Zero, true)
-        {
-            this.handle = handle;
-        }
+        internal godot_array.movable NativeValue;
 
-        public override bool IsInvalid
-        {
-            get { return handle == IntPtr.Zero; }
-        }
+        private WeakReference<IDisposable> _weakReferenceToSelf;
 
-        protected override bool ReleaseHandle()
-        {
-            Array.godot_icall_Array_Dtor(handle);
-            return true;
-        }
-    }
-
-    public class Array : IList, IDisposable
-    {
-        ArraySafeHandle safeHandle;
-        bool disposed = false;
-
+        /// <summary>
+        /// Constructs a new empty <see cref="Array"/>.
+        /// </summary>
         public Array()
         {
-            safeHandle = new ArraySafeHandle(godot_icall_Array_Ctor());
+            NativeValue = (godot_array.movable)NativeFuncs.godotsharp_array_new();
+            _weakReferenceToSelf = DisposablesTracker.RegisterDisposable(this);
         }
 
-        public Array(IEnumerable collection) : this()
+        /// <summary>
+        /// Constructs a new <see cref="Array"/> from the given collection's elements.
+        /// </summary>
+        /// <param name="collection">The collection of elements to construct from.</param>
+        /// <returns>A new Godot Array.</returns>
+        public Array(IEnumerable<Variant> collection) : this()
         {
             if (collection == null)
-                throw new NullReferenceException($"Parameter '{nameof(collection)} cannot be null.'");
+                throw new ArgumentNullException(nameof(collection));
 
-            foreach (object element in collection)
+            foreach (Variant element in collection)
                 Add(element);
         }
 
-        public Array(params object[] array) : this()
+        /// <summary>
+        /// Constructs a new <see cref="Array"/> from the given objects.
+        /// </summary>
+        /// <param name="array">The objects to put in the new array.</param>
+        /// <returns>A new Godot Array.</returns>
+        public Array(Variant[] array) : this()
         {
             if (array == null)
-            {
-                throw new NullReferenceException($"Parameter '{nameof(array)} cannot be null.'");
-            }
-            safeHandle = new ArraySafeHandle(godot_icall_Array_Ctor_MonoArray(array));
+                throw new ArgumentNullException(nameof(array));
+
+            NativeValue = (godot_array.movable)NativeFuncs.godotsharp_array_new();
+            _weakReferenceToSelf = DisposablesTracker.RegisterDisposable(this);
+
+            int length = array.Length;
+
+            Resize(length);
+
+            for (int i = 0; i < length; i++)
+                this[i] = array[i];
         }
 
-        internal Array(ArraySafeHandle handle)
+        public Array(Span<StringName> array) : this()
         {
-            safeHandle = handle;
+            if (array == null)
+                throw new ArgumentNullException(nameof(array));
+
+            NativeValue = (godot_array.movable)NativeFuncs.godotsharp_array_new();
+            _weakReferenceToSelf = DisposablesTracker.RegisterDisposable(this);
+
+            int length = array.Length;
+
+            Resize(length);
+
+            for (int i = 0; i < length; i++)
+                this[i] = array[i];
         }
 
-        internal Array(IntPtr handle)
+        public Array(Span<NodePath> array) : this()
         {
-            safeHandle = new ArraySafeHandle(handle);
+            if (array == null)
+                throw new ArgumentNullException(nameof(array));
+
+            NativeValue = (godot_array.movable)NativeFuncs.godotsharp_array_new();
+            _weakReferenceToSelf = DisposablesTracker.RegisterDisposable(this);
+
+            int length = array.Length;
+
+            Resize(length);
+
+            for (int i = 0; i < length; i++)
+                this[i] = array[i];
         }
 
-        internal IntPtr GetPtr()
+        public Array(Span<RID> array) : this()
         {
-            if (disposed)
-                throw new ObjectDisposedException(GetType().FullName);
+            if (array == null)
+                throw new ArgumentNullException(nameof(array));
 
-            return safeHandle.DangerousGetHandle();
+            NativeValue = (godot_array.movable)NativeFuncs.godotsharp_array_new();
+            _weakReferenceToSelf = DisposablesTracker.RegisterDisposable(this);
+
+            int length = array.Length;
+
+            Resize(length);
+
+            for (int i = 0; i < length; i++)
+                this[i] = array[i];
         }
 
-        public Array Duplicate(bool deep = false)
+        // We must use ReadOnlySpan instead of Span here as this can accept implicit conversions
+        // from derived types (e.g.: Node[]). Implicit conversion from Derived[] to Base[] are
+        // fine as long as the array is not mutated. However, Span does this type checking at
+        // instantiation, so it's not possible to use it even when not mutating anything.
+        // ReSharper disable once RedundantNameQualifier
+        public Array(ReadOnlySpan<Godot.Object> array) : this()
         {
-            return new Array(godot_icall_Array_Duplicate(GetPtr(), deep));
+            if (array == null)
+                throw new ArgumentNullException(nameof(array));
+
+            NativeValue = (godot_array.movable)NativeFuncs.godotsharp_array_new();
+            _weakReferenceToSelf = DisposablesTracker.RegisterDisposable(this);
+
+            int length = array.Length;
+
+            Resize(length);
+
+            for (int i = 0; i < length; i++)
+                this[i] = array[i];
         }
 
-        public Error Resize(int newSize)
+        private Array(godot_array nativeValueToOwn)
         {
-            return godot_icall_Array_Resize(GetPtr(), newSize);
+            NativeValue = (godot_array.movable)(nativeValueToOwn.IsAllocated ?
+                nativeValueToOwn :
+                NativeFuncs.godotsharp_array_new());
+            _weakReferenceToSelf = DisposablesTracker.RegisterDisposable(this);
         }
 
-        public void Shuffle()
+        // Explicit name to make it very clear
+        internal static Array CreateTakingOwnershipOfDisposableValue(godot_array nativeValueToOwn)
+            => new Array(nativeValueToOwn);
+
+        ~Array()
         {
-            godot_icall_Array_Shuffle(GetPtr());
+            Dispose(false);
         }
 
-        public static Array operator +(Array left, Array right)
-        {
-            return new Array(godot_icall_Array_Concatenate(left.GetPtr(), right.GetPtr()));
-        }
-
-        // IDisposable
-
+        /// <summary>
+        /// Disposes of this <see cref="Array"/>.
+        /// </summary>
         public void Dispose()
         {
-            if (disposed)
-                return;
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
 
-            if (safeHandle != null)
+        public void Dispose(bool disposing)
+        {
+            // Always dispose `NativeValue` even if disposing is true
+            NativeValue.DangerousSelfRef.Dispose();
+
+            if (_weakReferenceToSelf != null)
             {
-                safeHandle.Dispose();
-                safeHandle = null;
+                DisposablesTracker.UnregisterDisposable(_weakReferenceToSelf);
+            }
+        }
+
+        /// <summary>
+        /// Duplicates this <see cref="Array"/>.
+        /// </summary>
+        /// <param name="deep">If <see langword="true"/>, performs a deep copy.</param>
+        /// <returns>A new Godot Array.</returns>
+        public Array Duplicate(bool deep = false)
+        {
+            godot_array newArray;
+            var self = (godot_array)NativeValue;
+            NativeFuncs.godotsharp_array_duplicate(ref self, deep.ToGodotBool(), out newArray);
+            return CreateTakingOwnershipOfDisposableValue(newArray);
+        }
+
+        /// <summary>
+        /// Resizes this <see cref="Array"/> to the given size.
+        /// </summary>
+        /// <param name="newSize">The new size of the array.</param>
+        /// <returns><see cref="Error.Ok"/> if successful, or an error code.</returns>
+        public Error Resize(int newSize)
+        {
+            var self = (godot_array)NativeValue;
+            return NativeFuncs.godotsharp_array_resize(ref self, newSize);
+        }
+
+        /// <summary>
+        /// Shuffles the contents of this <see cref="Array"/> into a random order.
+        /// </summary>
+        public void Shuffle()
+        {
+            var self = (godot_array)NativeValue;
+            NativeFuncs.godotsharp_array_shuffle(ref self);
+        }
+
+        /// <summary>
+        /// Concatenates these two <see cref="Array"/>s.
+        /// </summary>
+        /// <param name="left">The first array.</param>
+        /// <param name="right">The second array.</param>
+        /// <returns>A new Godot Array with the contents of both arrays.</returns>
+        public static Array operator +(Array left, Array right)
+        {
+            if (left == null)
+            {
+                if (right == null)
+                    return new Array();
+
+                return right.Duplicate(deep: false);
             }
 
-            disposed = true;
+            if (right == null)
+                return left.Duplicate(deep: false);
+
+            int leftCount = left.Count;
+            int rightCount = right.Count;
+
+            Array newArray = left.Duplicate(deep: false);
+            newArray.Resize(leftCount + rightCount);
+
+            for (int i = 0; i < rightCount; i++)
+                newArray[i + leftCount] = right[i];
+
+            return newArray;
         }
 
-        // IList
-
-        public bool IsReadOnly => false;
-
-        public bool IsFixedSize => false;
-
-        public object this[int index]
+        /// <summary>
+        /// Returns the item at the given <paramref name="index"/>.
+        /// </summary>
+        /// <value>The <see cref="Variant"/> item at the given <paramref name="index"/>.</value>
+        public unsafe Variant this[int index]
         {
-            get => godot_icall_Array_At(GetPtr(), index);
-            set => godot_icall_Array_SetAt(GetPtr(), index, value);
+            get
+            {
+                GetVariantBorrowElementAt(index, out godot_variant borrowElem);
+                return Variant.CreateCopyingBorrowed(borrowElem);
+            }
+            set
+            {
+                if (index < 0 || index >= Count)
+                    throw new ArgumentOutOfRangeException(nameof(index));
+                var self = (godot_array)NativeValue;
+                godot_variant* ptrw = NativeFuncs.godotsharp_array_ptrw(ref self);
+                godot_variant* itemPtr = &ptrw[index];
+                (*itemPtr).Dispose();
+                *itemPtr = value.CopyNativeVariant();
+            }
         }
 
-        public int Add(object value) => godot_icall_Array_Add(GetPtr(), value);
+        /// <summary>
+        /// Adds an item to the end of this <see cref="Array"/>.
+        /// This is the same as <c>append</c> or <c>push_back</c> in GDScript.
+        /// </summary>
+        /// <param name="item">The <see cref="Variant"/> item to add.</param>
+        public void Add(Variant item)
+        {
+            godot_variant variantValue = (godot_variant)item.NativeVar;
+            var self = (godot_array)NativeValue;
+            _ = NativeFuncs.godotsharp_array_add(ref self, variantValue);
+        }
 
-        public bool Contains(object value) => godot_icall_Array_Contains(GetPtr(), value);
+        /// <summary>
+        /// Checks if this <see cref="Array"/> contains the given item.
+        /// </summary>
+        /// <param name="item">The <see cref="Variant"/> item to look for.</param>
+        /// <returns>Whether or not this array contains the given item.</returns>
+        public bool Contains(Variant item) => IndexOf(item) != -1;
 
-        public void Clear() => godot_icall_Array_Clear(GetPtr());
+        /// <summary>
+        /// Erases all items from this <see cref="Array"/>.
+        /// </summary>
+        public void Clear() => Resize(0);
 
-        public int IndexOf(object value) => godot_icall_Array_IndexOf(GetPtr(), value);
+        /// <summary>
+        /// Searches this <see cref="Array"/> for an item
+        /// and returns its index or -1 if not found.
+        /// </summary>
+        /// <param name="item">The <see cref="Variant"/> item to search for.</param>
+        /// <returns>The index of the item, or -1 if not found.</returns>
+        public int IndexOf(Variant item)
+        {
+            godot_variant variantValue = (godot_variant)item.NativeVar;
+            var self = (godot_array)NativeValue;
+            return NativeFuncs.godotsharp_array_index_of(ref self, variantValue);
+        }
 
-        public void Insert(int index, object value) => godot_icall_Array_Insert(GetPtr(), index, value);
+        /// <summary>
+        /// Inserts a new item at a given position in the array.
+        /// The position must be a valid position of an existing item,
+        /// or the position at the end of the array.
+        /// Existing items will be moved to the right.
+        /// </summary>
+        /// <param name="index">The index to insert at.</param>
+        /// <param name="item">The <see cref="Variant"/> item to insert.</param>
+        public void Insert(int index, Variant item)
+        {
+            if (index < 0 || index > Count)
+                throw new ArgumentOutOfRangeException(nameof(index));
 
-        public void Remove(object value) => godot_icall_Array_Remove(GetPtr(), value);
+            godot_variant variantValue = (godot_variant)item.NativeVar;
+            var self = (godot_array)NativeValue;
+            NativeFuncs.godotsharp_array_insert(ref self, index, variantValue);
+        }
 
-        public void RemoveAt(int index) => godot_icall_Array_RemoveAt(GetPtr(), index);
+        /// <summary>
+        /// Removes the first occurrence of the specified <paramref name="item"/>
+        /// from this <see cref="Array"/>.
+        /// </summary>
+        /// <param name="item">The value to remove.</param>
+        public bool Remove(Variant item)
+        {
+            int index = IndexOf(item);
+            if (index >= 0)
+            {
+                RemoveAt(index);
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Removes an element from this <see cref="Array"/> by index.
+        /// </summary>
+        /// <param name="index">The index of the element to remove.</param>
+        public void RemoveAt(int index)
+        {
+            if (index < 0 || index > Count)
+                throw new ArgumentOutOfRangeException(nameof(index));
+
+            var self = (godot_array)NativeValue;
+            NativeFuncs.godotsharp_array_remove_at(ref self, index);
+        }
 
         // ICollection
 
-        public int Count => godot_icall_Array_Count(GetPtr());
+        /// <summary>
+        /// Returns the number of elements in this <see cref="Array"/>.
+        /// This is also known as the size or length of the array.
+        /// </summary>
+        /// <returns>The number of elements.</returns>
+        public int Count => NativeValue.DangerousSelfRef.Size;
 
-        public object SyncRoot => this;
+        bool ICollection.IsSynchronized => false;
 
-        public bool IsSynchronized => false;
+        object ICollection.SyncRoot => false;
 
-        public void CopyTo(System.Array array, int index)
+        bool ICollection<Variant>.IsReadOnly => false;
+
+        /// <summary>
+        /// Copies the elements of this <see cref="Array"/> to the given
+        /// <see cref="Variant"/> C# array, starting at the given index.
+        /// </summary>
+        /// <param name="array">The array to copy to.</param>
+        /// <param name="arrayIndex">The index to start at.</param>
+        public void CopyTo(Variant[] array, int arrayIndex)
+        {
+            if (array == null)
+                throw new ArgumentNullException(nameof(array), "Value cannot be null.");
+
+            if (arrayIndex < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(arrayIndex),
+                    "Number was less than the array's lower bound in the first dimension.");
+            }
+
+            int count = Count;
+
+            if (array.Length < (arrayIndex + count))
+            {
+                throw new ArgumentException(
+                    "Destination array was not long enough. Check destIndex and length, and the array's lower bounds.");
+            }
+
+            unsafe
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    array[arrayIndex] = Variant.CreateCopyingBorrowed(NativeValue.DangerousSelfRef.Elements[i]);
+                    arrayIndex++;
+                }
+            }
+        }
+
+        void ICollection.CopyTo(System.Array array, int index)
         {
             if (array == null)
                 throw new ArgumentNullException(nameof(array), "Value cannot be null.");
 
             if (index < 0)
-                throw new ArgumentOutOfRangeException(nameof(index), "Number was less than the array's lower bound in the first dimension.");
+            {
+                throw new ArgumentOutOfRangeException(nameof(index),
+                    "Number was less than the array's lower bound in the first dimension.");
+            }
 
-            // Internal call may throw ArgumentException
-            godot_icall_Array_CopyTo(GetPtr(), array, index);
+            int count = Count;
+
+            if (array.Length < (index + count))
+            {
+                throw new ArgumentException(
+                    "Destination array was not long enough. Check destIndex and length, and the array's lower bounds.");
+            }
+
+            unsafe
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    object boxedVariant = Variant.CreateCopyingBorrowed(NativeValue.DangerousSelfRef.Elements[i]);
+                    array.SetValue(boxedVariant, index);
+                    index++;
+                }
+            }
         }
 
         // IEnumerable
 
-        public IEnumerator GetEnumerator()
+        /// <summary>
+        /// Gets an enumerator for this <see cref="Array"/>.
+        /// </summary>
+        /// <returns>An enumerator.</returns>
+        public IEnumerator<Variant> GetEnumerator()
         {
             int count = Count;
 
@@ -165,249 +441,376 @@ namespace Godot.Collections
             }
         }
 
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+        /// <summary>
+        /// Converts this <see cref="Array"/> to a string.
+        /// </summary>
+        /// <returns>A string representation of this array.</returns>
         public override string ToString()
         {
-            return godot_icall_Array_ToString(GetPtr());
+            var self = (godot_array)NativeValue;
+            NativeFuncs.godotsharp_array_to_string(ref self, out godot_string str);
+            using (str)
+                return Marshaling.ConvertStringToManaged(str);
         }
 
-        [MethodImpl(MethodImplOptions.InternalCall)]
-        internal extern static IntPtr godot_icall_Array_Ctor();
+        /// <summary>
+        /// The variant returned via the <paramref name="elem"/> parameter is owned by the Array and must not be disposed.
+        /// </summary>
+        internal void GetVariantBorrowElementAt(int index, out godot_variant elem)
+        {
+            if (index < 0 || index >= Count)
+                throw new ArgumentOutOfRangeException(nameof(index));
+            GetVariantBorrowElementAtUnchecked(index, out elem);
+        }
 
-        [MethodImpl(MethodImplOptions.InternalCall)]
-        internal extern static IntPtr godot_icall_Array_Ctor_MonoArray(System.Array array);
-
-        [MethodImpl(MethodImplOptions.InternalCall)]
-        internal extern static void godot_icall_Array_Dtor(IntPtr ptr);
-
-        [MethodImpl(MethodImplOptions.InternalCall)]
-        internal extern static object godot_icall_Array_At(IntPtr ptr, int index);
-
-        [MethodImpl(MethodImplOptions.InternalCall)]
-        internal extern static object godot_icall_Array_At_Generic(IntPtr ptr, int index, int elemTypeEncoding, IntPtr elemTypeClass);
-
-        [MethodImpl(MethodImplOptions.InternalCall)]
-        internal extern static void godot_icall_Array_SetAt(IntPtr ptr, int index, object value);
-
-        [MethodImpl(MethodImplOptions.InternalCall)]
-        internal extern static int godot_icall_Array_Count(IntPtr ptr);
-
-        [MethodImpl(MethodImplOptions.InternalCall)]
-        internal extern static int godot_icall_Array_Add(IntPtr ptr, object item);
-
-        [MethodImpl(MethodImplOptions.InternalCall)]
-        internal extern static void godot_icall_Array_Clear(IntPtr ptr);
-
-        [MethodImpl(MethodImplOptions.InternalCall)]
-        internal extern static IntPtr godot_icall_Array_Concatenate(IntPtr left, IntPtr right);
-
-        [MethodImpl(MethodImplOptions.InternalCall)]
-        internal extern static bool godot_icall_Array_Contains(IntPtr ptr, object item);
-
-        [MethodImpl(MethodImplOptions.InternalCall)]
-        internal extern static void godot_icall_Array_CopyTo(IntPtr ptr, System.Array array, int arrayIndex);
-
-        [MethodImpl(MethodImplOptions.InternalCall)]
-        internal extern static IntPtr godot_icall_Array_Duplicate(IntPtr ptr, bool deep);
-
-        [MethodImpl(MethodImplOptions.InternalCall)]
-        internal extern static int godot_icall_Array_IndexOf(IntPtr ptr, object item);
-
-        [MethodImpl(MethodImplOptions.InternalCall)]
-        internal extern static void godot_icall_Array_Insert(IntPtr ptr, int index, object item);
-
-        [MethodImpl(MethodImplOptions.InternalCall)]
-        internal extern static bool godot_icall_Array_Remove(IntPtr ptr, object item);
-
-        [MethodImpl(MethodImplOptions.InternalCall)]
-        internal extern static void godot_icall_Array_RemoveAt(IntPtr ptr, int index);
-
-        [MethodImpl(MethodImplOptions.InternalCall)]
-        internal extern static Error godot_icall_Array_Resize(IntPtr ptr, int newSize);
-
-        [MethodImpl(MethodImplOptions.InternalCall)]
-        internal extern static Error godot_icall_Array_Shuffle(IntPtr ptr);
-
-        [MethodImpl(MethodImplOptions.InternalCall)]
-        internal extern static void godot_icall_Array_Generic_GetElementTypeInfo(Type elemType, out int elemTypeEncoding, out IntPtr elemTypeClass);
-
-        [MethodImpl(MethodImplOptions.InternalCall)]
-        internal extern static string godot_icall_Array_ToString(IntPtr ptr);
+        /// <summary>
+        /// The variant returned via the <paramref name="elem"/> parameter is owned by the Array and must not be disposed.
+        /// </summary>
+        internal unsafe void GetVariantBorrowElementAtUnchecked(int index, out godot_variant elem)
+        {
+            elem = NativeValue.DangerousSelfRef.Elements[index];
+        }
     }
 
-    public class Array<T> : IList<T>, ICollection<T>, IEnumerable<T>
+    internal interface IGenericGodotArray
     {
-        Array objectArray;
+        public Array UnderlyingArray { get; }
+    }
 
-        internal static int elemTypeEncoding;
-        internal static IntPtr elemTypeClass;
+    /// <summary>
+    /// Typed wrapper around Godot's Array class, an array of Variant
+    /// typed elements allocated in the engine in C++. Useful when
+    /// interfacing with the engine. Otherwise prefer .NET collections
+    /// such as arrays or <see cref="List{T}"/>.
+    /// </summary>
+    /// <typeparam name="T">The type of the array.</typeparam>
+    [SuppressMessage("ReSharper", "RedundantExtendsListEntry")]
+    [SuppressMessage("Naming", "CA1710", MessageId = "Identifiers should have correct suffix")]
+    public sealed class Array<[MustBeVariant] T> :
+        IList<T>,
+        IReadOnlyList<T>,
+        ICollection<T>,
+        IEnumerable<T>,
+        IGenericGodotArray
+    {
+        private static godot_variant ToVariantFunc(in Array<T> godotArray) =>
+            VariantUtils.CreateFromArray(godotArray);
 
-        static Array()
+        private static Array<T> FromVariantFunc(in godot_variant variant) =>
+            VariantUtils.ConvertToArrayObject<T>(variant);
+
+        static unsafe Array()
         {
-            Array.godot_icall_Array_Generic_GetElementTypeInfo(typeof(T), out elemTypeEncoding, out elemTypeClass);
+            VariantUtils.GenericConversion<Array<T>>.ToVariantCb = &ToVariantFunc;
+            VariantUtils.GenericConversion<Array<T>>.FromVariantCb = &FromVariantFunc;
         }
 
+        private readonly Array _underlyingArray;
+
+        Array IGenericGodotArray.UnderlyingArray => _underlyingArray;
+
+        internal ref godot_array.movable NativeValue
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => ref _underlyingArray.NativeValue;
+        }
+
+        /// <summary>
+        /// Constructs a new empty <see cref="Array{T}"/>.
+        /// </summary>
         public Array()
         {
-            objectArray = new Array();
+            _underlyingArray = new Array();
         }
 
+        /// <summary>
+        /// Constructs a new <see cref="Array{T}"/> from the given collection's elements.
+        /// </summary>
+        /// <param name="collection">The collection of elements to construct from.</param>
+        /// <returns>A new Godot Array.</returns>
         public Array(IEnumerable<T> collection)
         {
             if (collection == null)
-                throw new NullReferenceException($"Parameter '{nameof(collection)} cannot be null.'");
+                throw new ArgumentNullException(nameof(collection));
 
-            objectArray = new Array(collection);
+            _underlyingArray = new Array();
+
+            foreach (T element in collection)
+                Add(element);
         }
 
-        public Array(params T[] array) : this()
+        /// <summary>
+        /// Constructs a new <see cref="Array{T}"/> from the given items.
+        /// </summary>
+        /// <param name="array">The items to put in the new array.</param>
+        /// <returns>A new Godot Array.</returns>
+        public Array(T[] array) : this()
         {
             if (array == null)
-            {
-                throw new NullReferenceException($"Parameter '{nameof(array)} cannot be null.'");
-            }
-            objectArray = new Array(array);
+                throw new ArgumentNullException(nameof(array));
+
+            _underlyingArray = new Array();
+
+            foreach (T element in array)
+                Add(element);
         }
 
+        /// <summary>
+        /// Constructs a typed <see cref="Array{T}"/> from an untyped <see cref="Array"/>.
+        /// </summary>
+        /// <param name="array">The untyped array to construct from.</param>
         public Array(Array array)
         {
-            objectArray = array;
+            _underlyingArray = array;
         }
 
-        internal Array(IntPtr handle)
-        {
-            objectArray = new Array(handle);
-        }
+        // Explicit name to make it very clear
+        internal static Array<T> CreateTakingOwnershipOfDisposableValue(godot_array nativeValueToOwn)
+            => new Array<T>(Array.CreateTakingOwnershipOfDisposableValue(nativeValueToOwn));
 
-        internal Array(ArraySafeHandle handle)
-        {
-            objectArray = new Array(handle);
-        }
-
-        internal IntPtr GetPtr()
-        {
-            return objectArray.GetPtr();
-        }
-
+        /// <summary>
+        /// Converts this typed <see cref="Array{T}"/> to an untyped <see cref="Array"/>.
+        /// </summary>
+        /// <param name="from">The typed array to convert.</param>
         public static explicit operator Array(Array<T> from)
         {
-            return from.objectArray;
+            return from?._underlyingArray;
         }
 
+        /// <summary>
+        /// Duplicates this <see cref="Array{T}"/>.
+        /// </summary>
+        /// <param name="deep">If <see langword="true"/>, performs a deep copy.</param>
+        /// <returns>A new Godot Array.</returns>
         public Array<T> Duplicate(bool deep = false)
         {
-            return new Array<T>(objectArray.Duplicate(deep));
+            return new Array<T>(_underlyingArray.Duplicate(deep));
         }
 
+        /// <summary>
+        /// Resizes this <see cref="Array{T}"/> to the given size.
+        /// </summary>
+        /// <param name="newSize">The new size of the array.</param>
+        /// <returns><see cref="Error.Ok"/> if successful, or an error code.</returns>
         public Error Resize(int newSize)
         {
-            return objectArray.Resize(newSize);
+            return _underlyingArray.Resize(newSize);
         }
 
+        /// <summary>
+        /// Shuffles the contents of this <see cref="Array{T}"/> into a random order.
+        /// </summary>
         public void Shuffle()
         {
-            objectArray.Shuffle();
+            _underlyingArray.Shuffle();
         }
 
+        /// <summary>
+        /// Concatenates these two <see cref="Array{T}"/>s.
+        /// </summary>
+        /// <param name="left">The first array.</param>
+        /// <param name="right">The second array.</param>
+        /// <returns>A new Godot Array with the contents of both arrays.</returns>
         public static Array<T> operator +(Array<T> left, Array<T> right)
         {
-            return new Array<T>(left.objectArray + right.objectArray);
+            if (left == null)
+            {
+                if (right == null)
+                    return new Array<T>();
+
+                return right.Duplicate(deep: false);
+            }
+
+            if (right == null)
+                return left.Duplicate(deep: false);
+
+            return new Array<T>(left._underlyingArray + right._underlyingArray);
         }
 
         // IList<T>
 
-        public T this[int index]
+        /// <summary>
+        /// Returns the value at the given <paramref name="index"/>.
+        /// </summary>
+        /// <value>The value at the given <paramref name="index"/>.</value>
+        public unsafe T this[int index]
         {
-            get { return (T)Array.godot_icall_Array_At_Generic(GetPtr(), index, elemTypeEncoding, elemTypeClass); }
-            set { objectArray[index] = value; }
+            get
+            {
+                _underlyingArray.GetVariantBorrowElementAt(index, out godot_variant borrowElem);
+                return VariantUtils.ConvertTo<T>(borrowElem);
+            }
+            set
+            {
+                if (index < 0 || index >= Count)
+                    throw new ArgumentOutOfRangeException(nameof(index));
+                var self = (godot_array)_underlyingArray.NativeValue;
+                godot_variant* ptrw = NativeFuncs.godotsharp_array_ptrw(ref self);
+                godot_variant* itemPtr = &ptrw[index];
+                (*itemPtr).Dispose();
+                *itemPtr = VariantUtils.CreateFrom(value);
+            }
         }
 
+        /// <summary>
+        /// Searches this <see cref="Array{T}"/> for an item
+        /// and returns its index or -1 if not found.
+        /// </summary>
+        /// <param name="item">The item to search for.</param>
+        /// <returns>The index of the item, or -1 if not found.</returns>
         public int IndexOf(T item)
         {
-            return objectArray.IndexOf(item);
+            using var variantValue = VariantUtils.CreateFrom(item);
+            var self = (godot_array)_underlyingArray.NativeValue;
+            return NativeFuncs.godotsharp_array_index_of(ref self, variantValue);
         }
 
+        /// <summary>
+        /// Inserts a new item at a given position in the <see cref="Array{T}"/>.
+        /// The position must be a valid position of an existing item,
+        /// or the position at the end of the array.
+        /// Existing items will be moved to the right.
+        /// </summary>
+        /// <param name="index">The index to insert at.</param>
+        /// <param name="item">The item to insert.</param>
         public void Insert(int index, T item)
         {
-            objectArray.Insert(index, item);
+            if (index < 0 || index > Count)
+                throw new ArgumentOutOfRangeException(nameof(index));
+
+            using var variantValue = VariantUtils.CreateFrom(item);
+            var self = (godot_array)_underlyingArray.NativeValue;
+            NativeFuncs.godotsharp_array_insert(ref self, index, variantValue);
         }
 
+        /// <summary>
+        /// Removes an element from this <see cref="Array{T}"/> by index.
+        /// </summary>
+        /// <param name="index">The index of the element to remove.</param>
         public void RemoveAt(int index)
         {
-            objectArray.RemoveAt(index);
+            _underlyingArray.RemoveAt(index);
         }
 
         // ICollection<T>
 
-        public int Count
-        {
-            get { return objectArray.Count; }
-        }
+        /// <summary>
+        /// Returns the number of elements in this <see cref="Array{T}"/>.
+        /// This is also known as the size or length of the array.
+        /// </summary>
+        /// <returns>The number of elements.</returns>
+        public int Count => _underlyingArray.Count;
 
-        public bool IsReadOnly
-        {
-            get { return objectArray.IsReadOnly; }
-        }
+        bool ICollection<T>.IsReadOnly => false;
 
+        /// <summary>
+        /// Adds an item to the end of this <see cref="Array{T}"/>.
+        /// This is the same as <c>append</c> or <c>push_back</c> in GDScript.
+        /// </summary>
+        /// <param name="item">The item to add.</param>
+        /// <returns>The new size after adding the item.</returns>
         public void Add(T item)
         {
-            objectArray.Add(item);
+            using var variantValue = VariantUtils.CreateFrom(item);
+            var self = (godot_array)_underlyingArray.NativeValue;
+            _ = NativeFuncs.godotsharp_array_add(ref self, variantValue);
         }
 
+        /// <summary>
+        /// Erases all items from this <see cref="Array{T}"/>.
+        /// </summary>
         public void Clear()
         {
-            objectArray.Clear();
+            _underlyingArray.Clear();
         }
 
-        public bool Contains(T item)
-        {
-            return objectArray.Contains(item);
-        }
+        /// <summary>
+        /// Checks if this <see cref="Array{T}"/> contains the given item.
+        /// </summary>
+        /// <param name="item">The item to look for.</param>
+        /// <returns>Whether or not this array contains the given item.</returns>
+        public bool Contains(T item) => IndexOf(item) != -1;
 
+        /// <summary>
+        /// Copies the elements of this <see cref="Array{T}"/> to the given
+        /// C# array, starting at the given index.
+        /// </summary>
+        /// <param name="array">The C# array to copy to.</param>
+        /// <param name="arrayIndex">The index to start at.</param>
         public void CopyTo(T[] array, int arrayIndex)
         {
             if (array == null)
                 throw new ArgumentNullException(nameof(array), "Value cannot be null.");
 
             if (arrayIndex < 0)
-                throw new ArgumentOutOfRangeException(nameof(arrayIndex), "Number was less than the array's lower bound in the first dimension.");
+            {
+                throw new ArgumentOutOfRangeException(nameof(arrayIndex),
+                    "Number was less than the array's lower bound in the first dimension.");
+            }
 
-            // TODO This may be quite slow because every element access is an internal call.
-            // It could be moved entirely to an internal call if we find out how to do the cast there.
-
-            int count = objectArray.Count;
+            int count = Count;
 
             if (array.Length < (arrayIndex + count))
-                throw new ArgumentException("Destination array was not long enough. Check destIndex and length, and the array's lower bounds.");
+            {
+                throw new ArgumentException(
+                    "Destination array was not long enough. Check destIndex and length, and the array's lower bounds.");
+            }
 
             for (int i = 0; i < count; i++)
             {
-                array[arrayIndex] = (T)this[i];
+                array[arrayIndex] = this[i];
                 arrayIndex++;
             }
         }
 
+        /// <summary>
+        /// Removes the first occurrence of the specified value
+        /// from this <see cref="Array{T}"/>.
+        /// </summary>
+        /// <param name="item">The value to remove.</param>
+        /// <returns>A <see langword="bool"/> indicating success or failure.</returns>
         public bool Remove(T item)
         {
-            return Array.godot_icall_Array_Remove(GetPtr(), item);
+            int index = IndexOf(item);
+            if (index >= 0)
+            {
+                RemoveAt(index);
+                return true;
+            }
+
+            return false;
         }
 
         // IEnumerable<T>
 
+        /// <summary>
+        /// Gets an enumerator for this <see cref="Array{T}"/>.
+        /// </summary>
+        /// <returns>An enumerator.</returns>
         public IEnumerator<T> GetEnumerator()
         {
-            int count = objectArray.Count;
+            int count = _underlyingArray.Count;
 
             for (int i = 0; i < count; i++)
             {
-                yield return (T)this[i];
+                yield return this[i];
             }
         }
 
-        IEnumerator IEnumerable.GetEnumerator()
-        {
-            return GetEnumerator();
-        }
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-        public override string ToString() => objectArray.ToString();
+        /// <summary>
+        /// Converts this <see cref="Array{T}"/> to a string.
+        /// </summary>
+        /// <returns>A string representation of this array.</returns>
+        public override string ToString() => _underlyingArray.ToString();
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static implicit operator Variant(Array<T> from) => Variant.CreateFrom(from);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static explicit operator Array<T>(Variant from) => from.AsGodotArray<T>();
     }
 }

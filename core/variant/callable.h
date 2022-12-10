@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -44,9 +44,10 @@ class CallableCustom;
 // is required. It is designed for the standard case (object and method)
 // but can be optimized or customized.
 
+// Enforce 16 bytes with `alignas` to avoid arch-specific alignment issues on x86 vs armv7.
+
 class Callable {
-	//needs to be max 16 bytes in 64 bits
-	StringName method;
+	alignas(8) StringName method;
 	union {
 		uint64_t object = 0;
 		CallableCustom *custom;
@@ -61,14 +62,28 @@ public:
 			CALL_ERROR_TOO_MANY_ARGUMENTS, // expected is number of arguments
 			CALL_ERROR_TOO_FEW_ARGUMENTS, // expected is number of arguments
 			CALL_ERROR_INSTANCE_IS_NULL,
+			CALL_ERROR_METHOD_NOT_CONST,
 		};
 		Error error = Error::CALL_OK;
 		int argument = 0;
 		int expected = 0;
 	};
 
-	void call(const Variant **p_arguments, int p_argcount, Variant &r_return_value, CallError &r_call_error) const;
-	void call_deferred(const Variant **p_arguments, int p_argcount) const;
+	void callp(const Variant **p_arguments, int p_argcount, Variant &r_return_value, CallError &r_call_error) const;
+	void call_deferredp(const Variant **p_arguments, int p_argcount) const;
+	Variant callv(const Array &p_arguments) const;
+
+	template <typename... VarArgs>
+	void call_deferred(VarArgs... p_args) const {
+		Variant args[sizeof...(p_args) + 1] = { p_args..., 0 }; // +1 makes sure zero sized arrays are also supported.
+		const Variant *argptrs[sizeof...(p_args) + 1];
+		for (uint32_t i = 0; i < sizeof...(p_args); i++) {
+			argptrs[i] = &args[i];
+		}
+		return call_deferredp(sizeof...(p_args) == 0 ? nullptr : (const Variant **)argptrs, sizeof...(p_args));
+	}
+
+	Error rpcp(int p_id, const Variant **p_arguments, int p_argcount, CallError &r_call_error) const;
 
 	_FORCE_INLINE_ bool is_null() const {
 		return method == StringName() && object == 0;
@@ -79,8 +94,12 @@ public:
 	_FORCE_INLINE_ bool is_standard() const {
 		return method != StringName();
 	}
+	bool is_valid() const;
 
-	Callable bind(const Variant **p_arguments, int p_argcount) const;
+	template <typename... VarArgs>
+	Callable bind(VarArgs... p_args);
+
+	Callable bindp(const Variant **p_arguments, int p_argcount) const;
 	Callable unbind(int p_argcount) const;
 
 	Object *get_object() const;
@@ -122,8 +141,10 @@ public:
 	virtual String get_as_text() const = 0;
 	virtual CompareEqualFunc get_compare_equal_func() const = 0;
 	virtual CompareLessFunc get_compare_less_func() const = 0;
+	virtual StringName get_method() const;
 	virtual ObjectID get_object() const = 0; //must always be able to provide an object
 	virtual void call(const Variant **p_arguments, int p_argcount, Variant &r_return_value, Callable::CallError &r_call_error) const = 0;
+	virtual Error rpc(int p_peer_id, const Variant **p_arguments, int p_argcount, Callable::CallError &r_call_error) const;
 	virtual const Callable *get_base_comparator() const;
 
 	CallableCustom();
@@ -135,8 +156,9 @@ public:
 // be put inside a Variant, but it is not
 // used by the engine itself.
 
+// Enforce 16 bytes with `alignas` to avoid arch-specific alignment issues on x86 vs armv7.
 class Signal {
-	StringName name;
+	alignas(8) StringName name;
 	ObjectID object;
 
 public:
@@ -154,7 +176,7 @@ public:
 	operator String() const;
 
 	Error emit(const Variant **p_arguments, int p_argcount) const;
-	Error connect(const Callable &p_callable, const Vector<Variant> &p_binds = Vector<Variant>(), uint32_t p_flags = 0);
+	Error connect(const Callable &p_callable, uint32_t p_flags = 0);
 	void disconnect(const Callable &p_callable);
 	bool is_connected(const Callable &p_callable) const;
 
@@ -162,6 +184,12 @@ public:
 	Signal(const Object *p_object, const StringName &p_name);
 	Signal(ObjectID p_object, const StringName &p_name);
 	Signal() {}
+};
+
+struct CallableComparator {
+	const Callable &func;
+
+	bool operator()(const Variant &p_l, const Variant &p_r) const;
 };
 
 #endif // CALLABLE_H

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -28,13 +28,14 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 
-#ifndef NAVIGATION_AGENT_H
-#define NAVIGATION_AGENT_H
+#ifndef NAVIGATION_AGENT_3D_H
+#define NAVIGATION_AGENT_3D_H
 
-#include "core/templates/vector.h"
 #include "scene/main/node.h"
 
 class Node3D;
+class NavigationPathQueryParameters3D;
+class NavigationPathQueryResult3D;
 
 class NavigationAgent3D : public Node {
 	GDCLASS(NavigationAgent3D, Node);
@@ -42,21 +43,28 @@ class NavigationAgent3D : public Node {
 	Node3D *agent_parent = nullptr;
 
 	RID agent;
+	RID map_before_pause;
+	RID map_override;
 
+	bool avoidance_enabled = false;
+	uint32_t navigation_layers = 1;
+
+	real_t path_desired_distance = 1.0;
 	real_t target_desired_distance = 1.0;
-	real_t radius;
+	real_t radius = 0.0;
 	real_t navigation_height_offset = 0.0;
-	bool ignore_y;
-	real_t neighbor_dist;
-	int max_neighbors;
-	real_t time_horizon;
-	real_t max_speed;
+	bool ignore_y = false;
+	real_t neighbor_distance = 0.0;
+	int max_neighbors = 0;
+	real_t time_horizon = 0.0;
+	real_t max_speed = 0.0;
 
 	real_t path_max_distance = 3.0;
 
 	Vector3 target_location;
-	Vector<Vector3> navigation_path;
-	int nav_path_index;
+	Ref<NavigationPathQueryParameters3D> navigation_query;
+	Ref<NavigationPathQueryResult3D> navigation_result;
+	int nav_path_index = 0;
 	bool velocity_submitted = false;
 	Vector3 prev_safe_velocity;
 	/// The submitted target velocity
@@ -64,7 +72,7 @@ class NavigationAgent3D : public Node {
 	bool target_reached = false;
 	bool navigation_finished = true;
 	// No initialized on purpose
-	uint32_t update_frame_id;
+	uint32_t update_frame_id = 0;
 
 protected:
 	static void _bind_methods();
@@ -76,6 +84,25 @@ public:
 
 	RID get_rid() const {
 		return agent;
+	}
+
+	void set_avoidance_enabled(bool p_enabled);
+	bool get_avoidance_enabled() const;
+
+	void set_agent_parent(Node *p_agent_parent);
+
+	void set_navigation_layers(uint32_t p_navigation_layers);
+	uint32_t get_navigation_layers() const;
+
+	void set_navigation_layer_value(int p_layer_number, bool p_value);
+	bool get_navigation_layer_value(int p_layer_number) const;
+
+	void set_navigation_map(RID p_navigation_map);
+	RID get_navigation_map() const;
+
+	void set_path_desired_distance(real_t p_dd);
+	real_t get_path_desired_distance() const {
+		return path_desired_distance;
 	}
 
 	void set_target_desired_distance(real_t p_dd);
@@ -98,9 +125,9 @@ public:
 		return ignore_y;
 	}
 
-	void set_neighbor_dist(real_t p_dist);
-	real_t get_neighbor_dist() const {
-		return neighbor_dist;
+	void set_neighbor_distance(real_t p_distance);
+	real_t get_neighbor_distance() const {
+		return neighbor_distance;
 	}
 
 	void set_max_neighbors(int p_count);
@@ -126,9 +153,7 @@ public:
 
 	Vector3 get_next_location();
 
-	Vector<Vector3> get_nav_path() const {
-		return navigation_path;
-	}
+	const Vector<Vector3> &get_nav_path() const;
 
 	int get_nav_path_index() const {
 		return nav_path_index;
@@ -143,10 +168,12 @@ public:
 	void set_velocity(Vector3 p_velocity);
 	void _avoidance_done(Vector3 p_new_velocity);
 
-	virtual String get_configuration_warning() const override;
+	PackedStringArray get_configuration_warnings() const override;
 
 private:
 	void update_navigation();
+	void _request_repath();
+	void _check_distance_to_target();
 };
 
-#endif
+#endif // NAVIGATION_AGENT_3D_H

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -60,7 +60,7 @@ static bool check_error(const png_image &image) {
 
 Error png_to_image(const uint8_t *p_source, size_t p_size, bool p_force_linear, Ref<Image> p_image) {
 	png_image png_img;
-	zeromem(&png_img, sizeof(png_img));
+	memset(&png_img, 0, sizeof(png_img));
 	png_img.version = PNG_IMAGE_VERSION;
 
 	// fetch image properties
@@ -119,7 +119,7 @@ Error png_to_image(const uint8_t *p_source, size_t p_size, bool p_force_linear, 
 	ERR_FAIL_COND_V(!success, ERR_FILE_CORRUPT);
 
 	//print_line("png width: "+itos(png_img.width)+" height: "+itos(png_img.height));
-	p_image->create(png_img.width, png_img.height, false, dest_format, buffer);
+	p_image->set_data(png_img.width, png_img.height, false, dest_format, buffer);
 
 	return OK;
 }
@@ -134,7 +134,7 @@ Error image_to_png(const Ref<Image> &p_image, Vector<uint8_t> &p_buffer) {
 	ERR_FAIL_COND_V(source_image->is_compressed(), FAILED);
 
 	png_image png_img;
-	zeromem(&png_img, sizeof(png_img));
+	memset(&png_img, 0, sizeof(png_img));
 	png_img.version = PNG_IMAGE_VERSION;
 	png_img.width = source_image->get_width();
 	png_img.height = source_image->get_height();

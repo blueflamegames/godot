@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -33,9 +33,8 @@
 
 #include "core/typedefs.h"
 
-#if !defined(NO_THREADS)
-
 #include <atomic>
+#include <type_traits>
 
 // Design goals for these classes:
 // - No automatic conversions or arithmetic operators,
@@ -110,7 +109,8 @@ public:
 			if (tmp >= p_value) {
 				return tmp; // already greater, or equal
 			}
-			if (value.compare_exchange_weak(tmp, p_value, std::memory_order_release)) {
+
+			if (value.compare_exchange_weak(tmp, p_value, std::memory_order_acq_rel)) {
 				return p_value;
 			}
 		}
@@ -122,7 +122,7 @@ public:
 			if (c == 0) {
 				return 0;
 			}
-			if (value.compare_exchange_weak(c, c + 1, std::memory_order_release)) {
+			if (value.compare_exchange_weak(c, c + 1, std::memory_order_acq_rel)) {
 				return c + 1;
 			}
 		}
@@ -188,142 +188,5 @@ public:
 		count.set(p_value);
 	}
 };
-
-#else
-
-template <class T>
-class SafeNumeric {
-protected:
-	T value;
-
-public:
-	_ALWAYS_INLINE_ void set(T p_value) {
-		value = p_value;
-	}
-
-	_ALWAYS_INLINE_ T get() const {
-		return value;
-	}
-
-	_ALWAYS_INLINE_ T increment() {
-		return ++value;
-	}
-
-	_ALWAYS_INLINE_ T postincrement() {
-		return value++;
-	}
-
-	_ALWAYS_INLINE_ T decrement() {
-		return --value;
-	}
-
-	_ALWAYS_INLINE_ T postdecrement() {
-		return value--;
-	}
-
-	_ALWAYS_INLINE_ T add(T p_value) {
-		return value += p_value;
-	}
-
-	_ALWAYS_INLINE_ T postadd(T p_value) {
-		T old = value;
-		value += p_value;
-		return old;
-	}
-
-	_ALWAYS_INLINE_ T sub(T p_value) {
-		return value -= p_value;
-	}
-
-	_ALWAYS_INLINE_ T postsub(T p_value) {
-		T old = value;
-		value -= p_value;
-		return old;
-	}
-
-	_ALWAYS_INLINE_ T exchange_if_greater(T p_value) {
-		if (value < p_value) {
-			value = p_value;
-		}
-		return value;
-	}
-
-	_ALWAYS_INLINE_ T conditional_increment() {
-		if (value == 0) {
-			return 0;
-		} else {
-			return ++value;
-		}
-	}
-
-	_ALWAYS_INLINE_ explicit SafeNumeric<T>(T p_value = static_cast<T>(0)) :
-			value(p_value) {
-	}
-};
-
-class SafeFlag {
-protected:
-	bool flag;
-
-public:
-	_ALWAYS_INLINE_ bool is_set() const {
-		return flag;
-	}
-
-	_ALWAYS_INLINE_ void set() {
-		flag = true;
-	}
-
-	_ALWAYS_INLINE_ void clear() {
-		flag = false;
-	}
-
-	_ALWAYS_INLINE_ void set_to(bool p_value) {
-		flag = p_value;
-	}
-
-	_ALWAYS_INLINE_ explicit SafeFlag(bool p_value = false) :
-			flag(p_value) {}
-};
-
-class SafeRefCount {
-	uint32_t count = 0;
-
-public:
-	_ALWAYS_INLINE_ bool ref() { // true on success
-		if (count != 0) {
-			++count;
-			return true;
-		} else {
-			return false;
-		}
-	}
-
-	_ALWAYS_INLINE_ uint32_t refval() { // none-zero on success
-		if (count != 0) {
-			return ++count;
-		} else {
-			return 0;
-		}
-	}
-
-	_ALWAYS_INLINE_ bool unref() { // true if must be disposed of
-		return --count == 0;
-	}
-
-	_ALWAYS_INLINE_ uint32_t unrefval() { // 0 if must be disposed of
-		return --count;
-	}
-
-	_ALWAYS_INLINE_ uint32_t get() const {
-		return count;
-	}
-
-	_ALWAYS_INLINE_ void init(uint32_t p_value = 1) {
-		count = p_value;
-	}
-};
-
-#endif
 
 #endif // SAFE_REFCOUNT_H

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -28,9 +28,10 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 
-#ifdef JAVASCRIPT_ENABLED
+#ifdef WEB_ENABLED
 
 #include "webrtc_data_channel_js.h"
+
 #include "emscripten.h"
 
 extern "C" {
@@ -46,6 +47,7 @@ extern int godot_js_rtc_datachannel_id_get(int p_id);
 extern int godot_js_rtc_datachannel_max_packet_lifetime_get(int p_id);
 extern int godot_js_rtc_datachannel_max_retransmits_get(int p_id);
 extern int godot_js_rtc_datachannel_is_negotiated(int p_id);
+extern int godot_js_rtc_datachannel_get_buffered_amount(int p_id);
 extern char *godot_js_rtc_datachannel_label_get(int p_id); // Must free the returned string.
 extern char *godot_js_rtc_datachannel_protocol_get(int p_id); // Must free the returned string.
 extern void godot_js_rtc_datachannel_destroy(int p_id);
@@ -103,8 +105,9 @@ int WebRTCDataChannelJS::get_available_packet_count() const {
 Error WebRTCDataChannelJS::get_packet(const uint8_t **r_buffer, int &r_buffer_size) {
 	ERR_FAIL_COND_V(get_ready_state() != STATE_OPEN, ERR_UNCONFIGURED);
 
-	if (queue_count == 0)
+	if (queue_count == 0) {
 		return ERR_UNAVAILABLE;
+	}
 
 	uint32_t to_read = 0;
 	uint32_t left = 0;
@@ -179,6 +182,10 @@ String WebRTCDataChannelJS::get_protocol() const {
 
 bool WebRTCDataChannelJS::is_negotiated() const {
 	return godot_js_rtc_datachannel_is_negotiated(_js_id);
+}
+
+int WebRTCDataChannelJS::get_buffered_amount() const {
+	return godot_js_rtc_datachannel_get_buffered_amount(_js_id);
 }
 
 WebRTCDataChannelJS::WebRTCDataChannelJS() {

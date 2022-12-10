@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -45,7 +45,7 @@ const char *JSON::tk_name[TK_MAX] = {
 	"EOF",
 };
 
-static String _make_indent(const String &p_indent, int p_size) {
+String JSON::_make_indent(const String &p_indent, int p_size) {
 	String indent_text = "";
 	if (!p_indent.is_empty()) {
 		for (int i = 0; i < p_size; i++) {
@@ -55,7 +55,9 @@ static String _make_indent(const String &p_indent, int p_size) {
 	return indent_text;
 }
 
-String JSON::_print_var(const Variant &p_var, const String &p_indent, int p_cur_indent, bool p_sort_keys) {
+String JSON::_stringify(const Variant &p_var, const String &p_indent, int p_cur_indent, bool p_sort_keys, HashSet<const void *> &p_markers, bool p_full_precision) {
+	ERR_FAIL_COND_V_MSG(p_cur_indent > Variant::MAX_RECURSION_DEPTH, "...", "JSON structure is too deep. Bailing.");
+
 	String colon = ":";
 	String end_statement = "";
 
@@ -71,8 +73,17 @@ String JSON::_print_var(const Variant &p_var, const String &p_indent, int p_cur_
 			return p_var.operator bool() ? "true" : "false";
 		case Variant::INT:
 			return itos(p_var);
-		case Variant::FLOAT:
-			return rtos(p_var);
+		case Variant::FLOAT: {
+			double num = p_var;
+			if (p_full_precision) {
+				// Store unreliable digits (17) instead of just reliable
+				// digits (14) so that the value can be decoded exactly.
+				return String::num(num, 17 - (int)floor(log10(num)));
+			} else {
+				// Store only reliable digits (14) by default.
+				return String::num(num, 14 - (int)floor(log10(num)));
+			}
+		}
 		case Variant::PACKED_INT32_ARRAY:
 		case Variant::PACKED_INT64_ARRAY:
 		case Variant::PACKED_FLOAT32_ARRAY:
@@ -82,20 +93,29 @@ String JSON::_print_var(const Variant &p_var, const String &p_indent, int p_cur_
 			String s = "[";
 			s += end_statement;
 			Array a = p_var;
+
+			ERR_FAIL_COND_V_MSG(p_markers.has(a.id()), "\"[...]\"", "Converting circular structure to JSON.");
+			p_markers.insert(a.id());
+
 			for (int i = 0; i < a.size(); i++) {
 				if (i > 0) {
 					s += ",";
 					s += end_statement;
 				}
-				s += _make_indent(p_indent, p_cur_indent + 1) + _print_var(a[i], p_indent, p_cur_indent + 1, p_sort_keys);
+				s += _make_indent(p_indent, p_cur_indent + 1) + _stringify(a[i], p_indent, p_cur_indent + 1, p_sort_keys, p_markers);
 			}
 			s += end_statement + _make_indent(p_indent, p_cur_indent) + "]";
+			p_markers.erase(a.id());
 			return s;
 		}
 		case Variant::DICTIONARY: {
 			String s = "{";
 			s += end_statement;
 			Dictionary d = p_var;
+
+			ERR_FAIL_COND_V_MSG(p_markers.has(d.id()), "\"{...}\"", "Converting circular structure to JSON.");
+			p_markers.insert(d.id());
+
 			List<Variant> keys;
 			d.get_key_list(&keys);
 
@@ -103,26 +123,26 @@ String JSON::_print_var(const Variant &p_var, const String &p_indent, int p_cur_
 				keys.sort();
 			}
 
-			for (List<Variant>::Element *E = keys.front(); E; E = E->next()) {
-				if (E != keys.front()) {
+			bool first_key = true;
+			for (const Variant &E : keys) {
+				if (first_key) {
+					first_key = false;
+				} else {
 					s += ",";
 					s += end_statement;
 				}
-				s += _make_indent(p_indent, p_cur_indent + 1) + _print_var(String(E->get()), p_indent, p_cur_indent + 1, p_sort_keys);
+				s += _make_indent(p_indent, p_cur_indent + 1) + _stringify(String(E), p_indent, p_cur_indent + 1, p_sort_keys, p_markers);
 				s += colon;
-				s += _print_var(d[E->get()], p_indent, p_cur_indent + 1, p_sort_keys);
+				s += _stringify(d[E], p_indent, p_cur_indent + 1, p_sort_keys, p_markers);
 			}
 
 			s += end_statement + _make_indent(p_indent, p_cur_indent) + "}";
+			p_markers.erase(d.id());
 			return s;
 		}
 		default:
 			return "\"" + String(p_var).json_escape() + "\"";
 	}
-}
-
-String JSON::print(const Variant &p_var, const String &p_indent, bool p_sort_keys) {
-	return _print_var(p_var, p_indent, 0, p_sort_keys);
 }
 
 Error JSON::_get_token(const char32_t *p_str, int &index, int p_len, Token &r_token, int &line, String &r_err_str) {
@@ -211,12 +231,12 @@ Error JSON::_get_token(const char32_t *p_str, int &index, int p_len, Token &r_to
 										r_err_str = "Unterminated String";
 										return ERR_PARSE_ERROR;
 									}
-									if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+									if (!is_hex_digit(c)) {
 										r_err_str = "Malformed hex constant in string";
 										return ERR_PARSE_ERROR;
 									}
 									char32_t v;
-									if (c >= '0' && c <= '9') {
+									if (is_digit(c)) {
 										v = c - '0';
 									} else if (c >= 'a' && c <= 'f') {
 										v = c - 'a';
@@ -247,12 +267,12 @@ Error JSON::_get_token(const char32_t *p_str, int &index, int p_len, Token &r_to
 											r_err_str = "Unterminated String";
 											return ERR_PARSE_ERROR;
 										}
-										if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+										if (!is_hex_digit(c)) {
 											r_err_str = "Malformed hex constant in string";
 											return ERR_PARSE_ERROR;
 										}
 										char32_t v;
-										if (c >= '0' && c <= '9') {
+										if (is_digit(c)) {
 											v = c - '0';
 										} else if (c >= 'a' && c <= 'f') {
 											v = c - 'a';
@@ -308,7 +328,7 @@ Error JSON::_get_token(const char32_t *p_str, int &index, int p_len, Token &r_to
 					break;
 				}
 
-				if (p_str[index] == '-' || (p_str[index] >= '0' && p_str[index] <= '9')) {
+				if (p_str[index] == '-' || is_digit(p_str[index])) {
 					//a number
 					const char32_t *rptr;
 					double number = String::to_float(&p_str[index], &rptr);
@@ -317,10 +337,10 @@ Error JSON::_get_token(const char32_t *p_str, int &index, int p_len, Token &r_to
 					r_token.value = number;
 					return OK;
 
-				} else if ((p_str[index] >= 'A' && p_str[index] <= 'Z') || (p_str[index] >= 'a' && p_str[index] <= 'z')) {
+				} else if (is_ascii_char(p_str[index])) {
 					String id;
 
-					while ((p_str[index] >= 'A' && p_str[index] <= 'Z') || (p_str[index] >= 'a' && p_str[index] <= 'z')) {
+					while (is_ascii_char(p_str[index])) {
 						id += p_str[index];
 						index++;
 					}
@@ -339,17 +359,22 @@ Error JSON::_get_token(const char32_t *p_str, int &index, int p_len, Token &r_to
 	return ERR_PARSE_ERROR;
 }
 
-Error JSON::_parse_value(Variant &value, Token &token, const char32_t *p_str, int &index, int p_len, int &line, String &r_err_str) {
+Error JSON::_parse_value(Variant &value, Token &token, const char32_t *p_str, int &index, int p_len, int &line, int p_depth, String &r_err_str) {
+	if (p_depth > Variant::MAX_RECURSION_DEPTH) {
+		r_err_str = "JSON structure is too deep. Bailing.";
+		return ERR_OUT_OF_MEMORY;
+	}
+
 	if (token.type == TK_CURLY_BRACKET_OPEN) {
 		Dictionary d;
-		Error err = _parse_object(d, p_str, index, p_len, line, r_err_str);
+		Error err = _parse_object(d, p_str, index, p_len, line, p_depth + 1, r_err_str);
 		if (err) {
 			return err;
 		}
 		value = d;
 	} else if (token.type == TK_BRACKET_OPEN) {
 		Array a;
-		Error err = _parse_array(a, p_str, index, p_len, line, r_err_str);
+		Error err = _parse_array(a, p_str, index, p_len, line, p_depth + 1, r_err_str);
 		if (err) {
 			return err;
 		}
@@ -378,7 +403,7 @@ Error JSON::_parse_value(Variant &value, Token &token, const char32_t *p_str, in
 	return OK;
 }
 
-Error JSON::_parse_array(Array &array, const char32_t *p_str, int &index, int p_len, int &line, String &r_err_str) {
+Error JSON::_parse_array(Array &array, const char32_t *p_str, int &index, int p_len, int &line, int p_depth, String &r_err_str) {
 	Token token;
 	bool need_comma = false;
 
@@ -403,7 +428,7 @@ Error JSON::_parse_array(Array &array, const char32_t *p_str, int &index, int p_
 		}
 
 		Variant v;
-		err = _parse_value(v, token, p_str, index, p_len, line, r_err_str);
+		err = _parse_value(v, token, p_str, index, p_len, line, p_depth, r_err_str);
 		if (err) {
 			return err;
 		}
@@ -416,7 +441,7 @@ Error JSON::_parse_array(Array &array, const char32_t *p_str, int &index, int p_
 	return ERR_PARSE_ERROR;
 }
 
-Error JSON::_parse_object(Dictionary &object, const char32_t *p_str, int &index, int p_len, int &line, String &r_err_str) {
+Error JSON::_parse_object(Dictionary &object, const char32_t *p_str, int &index, int p_len, int &line, int p_depth, String &r_err_str) {
 	bool at_key = true;
 	String key;
 	Token token;
@@ -465,7 +490,7 @@ Error JSON::_parse_object(Dictionary &object, const char32_t *p_str, int &index,
 			}
 
 			Variant v;
-			err = _parse_value(v, token, p_str, index, p_len, line, r_err_str);
+			err = _parse_value(v, token, p_str, index, p_len, line, p_depth, r_err_str);
 			if (err) {
 				return err;
 			}
@@ -479,7 +504,11 @@ Error JSON::_parse_object(Dictionary &object, const char32_t *p_str, int &index,
 	return ERR_PARSE_ERROR;
 }
 
-Error JSON::parse(const String &p_json, Variant &r_ret, String &r_err_str, int &r_err_line) {
+void JSON::set_data(const Variant &p_data) {
+	data = p_data;
+}
+
+Error JSON::_parse_string(const String &p_json, Variant &r_ret, String &r_err_str, int &r_err_line) {
 	const char32_t *str = p_json.ptr();
 	int idx = 0;
 	int len = p_json.length();
@@ -492,7 +521,7 @@ Error JSON::parse(const String &p_json, Variant &r_ret, String &r_err_str, int &
 		return err;
 	}
 
-	err = _parse_value(r_ret, token, str, idx, len, r_err_line, r_err_str);
+	err = _parse_value(r_ret, token, str, idx, len, r_err_line, 0, r_err_str);
 
 	// Check if EOF is reached
 	// or it's a type of the next token.
@@ -510,34 +539,117 @@ Error JSON::parse(const String &p_json, Variant &r_ret, String &r_err_str, int &
 	return err;
 }
 
-Error JSONParser::parse_string(const String &p_json_string) {
-	return JSON::parse(p_json_string, data, err_text, err_line);
-}
-String JSONParser::get_error_text() const {
-	return err_text;
-}
-int JSONParser::get_error_line() const {
-	return err_line;
-}
-Variant JSONParser::get_data() const {
-	return data;
+Error JSON::parse(const String &p_json_string) {
+	Error err = _parse_string(p_json_string, data, err_str, err_line);
+	if (err == Error::OK) {
+		err_line = 0;
+	}
+	return err;
 }
 
-Error JSONParser::decode_data(const Variant &p_data, const String &p_indent, bool p_sort_keys) {
-	string = JSON::print(p_data, p_indent, p_sort_keys);
-	data = p_data;
+String JSON::stringify(const Variant &p_var, const String &p_indent, bool p_sort_keys, bool p_full_precision) {
+	Ref<JSON> jason;
+	jason.instantiate();
+	HashSet<const void *> markers;
+	return jason->_stringify(p_var, p_indent, 0, p_sort_keys, markers, p_full_precision);
+}
+
+Variant JSON::parse_string(const String &p_json_string) {
+	Ref<JSON> jason;
+	jason.instantiate();
+	Error error = jason->parse(p_json_string);
+	ERR_FAIL_COND_V_MSG(error != Error::OK, Variant(), vformat("Parse JSON failed. Error at line %d: %s", jason->get_error_line(), jason->get_error_message()));
+	return jason->get_data();
+}
+
+void JSON::_bind_methods() {
+	ClassDB::bind_static_method("JSON", D_METHOD("stringify", "data", "indent", "sort_keys", "full_precision"), &JSON::stringify, DEFVAL(""), DEFVAL(true), DEFVAL(false));
+	ClassDB::bind_static_method("JSON", D_METHOD("parse_string", "json_string"), &JSON::parse_string);
+	ClassDB::bind_method(D_METHOD("parse", "json_string"), &JSON::parse);
+
+	ClassDB::bind_method(D_METHOD("get_data"), &JSON::get_data);
+	ClassDB::bind_method(D_METHOD("set_data", "data"), &JSON::set_data);
+	ClassDB::bind_method(D_METHOD("get_error_line"), &JSON::get_error_line);
+	ClassDB::bind_method(D_METHOD("get_error_message"), &JSON::get_error_message);
+
+	ADD_PROPERTY(PropertyInfo(Variant::NIL, "data", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_NIL_IS_VARIANT), "set_data", "get_data"); // Ensures that it can be serialized as binary.
+}
+
+////
+
+////////////
+
+Ref<Resource> ResourceFormatLoaderJSON::load(const String &p_path, const String &p_original_path, Error *r_error, bool p_use_sub_threads, float *r_progress, CacheMode p_cache_mode) {
+	if (r_error) {
+		*r_error = ERR_FILE_CANT_OPEN;
+	}
+
+	if (!FileAccess::exists(p_path)) {
+		*r_error = ERR_FILE_NOT_FOUND;
+		return Ref<Resource>();
+	}
+
+	Ref<JSON> json;
+	json.instantiate();
+
+	Error err = json->parse(FileAccess::get_file_as_string(p_path));
+	if (err != OK) {
+		if (r_error) {
+			*r_error = err;
+		}
+		ERR_PRINT("Error parsing JSON file at '" + p_path + "', on line " + itos(json->get_error_line()) + ": " + json->get_error_message());
+		return Ref<Resource>();
+	}
+
+	if (r_error) {
+		*r_error = OK;
+	}
+
+	return json;
+}
+
+void ResourceFormatLoaderJSON::get_recognized_extensions(List<String> *p_extensions) const {
+	p_extensions->push_back("json");
+}
+
+bool ResourceFormatLoaderJSON::handles_type(const String &p_type) const {
+	return (p_type == "JSON");
+}
+
+String ResourceFormatLoaderJSON::get_resource_type(const String &p_path) const {
+	String el = p_path.get_extension().to_lower();
+	if (el == "json") {
+		return "JSON";
+	}
+	return "";
+}
+
+Error ResourceFormatSaverJSON::save(const Ref<Resource> &p_resource, const String &p_path, uint32_t p_flags) {
+	Ref<JSON> json = p_resource;
+	ERR_FAIL_COND_V(json.is_null(), ERR_INVALID_PARAMETER);
+
+	String source = JSON::stringify(json->get_data(), "\t", false, true);
+
+	Error err;
+	Ref<FileAccess> file = FileAccess::open(p_path, FileAccess::WRITE, &err);
+
+	ERR_FAIL_COND_V_MSG(err, err, "Cannot save json '" + p_path + "'.");
+
+	file->store_string(source);
+	if (file->get_error() != OK && file->get_error() != ERR_FILE_EOF) {
+		return ERR_CANT_CREATE;
+	}
+
 	return OK;
 }
 
-String JSONParser::get_string() const {
-	return string;
+void ResourceFormatSaverJSON::get_recognized_extensions(const Ref<Resource> &p_resource, List<String> *p_extensions) const {
+	Ref<JSON> json = p_resource;
+	if (json.is_valid()) {
+		p_extensions->push_back("json");
+	}
 }
 
-void JSONParser::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("parse_string", "json_string"), &JSONParser::parse_string);
-	ClassDB::bind_method(D_METHOD("get_error_text"), &JSONParser::get_error_text);
-	ClassDB::bind_method(D_METHOD("get_error_line"), &JSONParser::get_error_line);
-	ClassDB::bind_method(D_METHOD("get_data"), &JSONParser::get_data);
-	ClassDB::bind_method(D_METHOD("decode_data", "data", "indent", "sort_keys"), &JSONParser::decode_data, DEFVAL(""), DEFVAL(true));
-	ClassDB::bind_method(D_METHOD("get_string"), &JSONParser::get_string);
+bool ResourceFormatSaverJSON::recognize(const Ref<Resource> &p_resource) const {
+	return p_resource->get_class_name() == "JSON"; //only json, not inherited
 }

@@ -77,6 +77,8 @@
 #endif
 
 #ifdef SIMD_WASM
+#undef __DEPRECATED
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 #include <wasm_simd128.h>
 #endif
 
@@ -710,18 +712,12 @@ static v128_t decodeShuffleMask(unsigned char mask0, unsigned char mask1)
 SIMD_TARGET
 static void wasmMoveMask(v128_t mask, unsigned char& mask0, unsigned char& mask1)
 {
-	v128_t mask_0 = wasm_v32x4_shuffle(mask, mask, 0, 2, 1, 3);
-
-	uint64_t mask_1a = wasm_i64x2_extract_lane(mask_0, 0) & 0x0804020108040201ull;
-	uint64_t mask_1b = wasm_i64x2_extract_lane(mask_0, 1) & 0x8040201080402010ull;
+	// magic constant found using z3 SMT assuming mask has 8 groups of 0xff or 0x00
+	const uint64_t magic = 0x000103070f1f3f80ull;
 
 	// TODO: This can use v8x16_bitmask in the future
-	uint64_t mask_2 = mask_1a | mask_1b;
-	uint64_t mask_4 = mask_2 | (mask_2 >> 16);
-	uint64_t mask_8 = mask_4 | (mask_4 >> 8);
-
-	mask0 = uint8_t(mask_8);
-	mask1 = uint8_t(mask_8 >> 32);
+	mask0 = uint8_t((wasm_i64x2_extract_lane(mask, 0) * magic) >> 56);
+	mask1 = uint8_t((wasm_i64x2_extract_lane(mask, 1) * magic) >> 56);
 }
 
 SIMD_TARGET
@@ -1034,7 +1030,7 @@ static unsigned int getCpuFeatures()
 	return cpuinfo[2];
 }
 
-unsigned int cpuid = getCpuFeatures();
+static unsigned int cpuid = getCpuFeatures();
 #endif
 
 } // namespace meshopt

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,16 +31,17 @@
 #ifndef TEXTURE_LAYERED_EDITOR_PLUGIN_H
 #define TEXTURE_LAYERED_EDITOR_PLUGIN_H
 
-#include "editor/editor_node.h"
+#include "editor/editor_inspector.h"
 #include "editor/editor_plugin.h"
+#include "scene/gui/spin_box.h"
 #include "scene/resources/shader.h"
 #include "scene/resources/texture.h"
 
 class TextureLayeredEditor : public Control {
 	GDCLASS(TextureLayeredEditor, Control);
 
-	SpinBox *layer;
-	Label *info;
+	SpinBox *layer = nullptr;
+	Label *info = nullptr;
 	Ref<TextureLayered> texture;
 
 	Ref<Shader> shaders[3];
@@ -48,7 +49,7 @@ class TextureLayeredEditor : public Control {
 
 	float x_rot = 0;
 	float y_rot = 0;
-	Control *texture_rect;
+	Control *texture_rect = nullptr;
 
 	void _make_shaders();
 
@@ -67,8 +68,7 @@ class TextureLayeredEditor : public Control {
 
 protected:
 	void _notification(int p_what);
-	void _gui_input(Ref<InputEvent> p_event);
-	static void _bind_methods();
+	virtual void gui_input(const Ref<InputEvent> &p_event) override;
 
 public:
 	void edit(Ref<TextureLayered> p_texture);
@@ -90,7 +90,7 @@ class TextureLayeredEditorPlugin : public EditorPlugin {
 public:
 	virtual String get_name() const override { return "TextureLayered"; }
 
-	TextureLayeredEditorPlugin(EditorNode *p_node);
+	TextureLayeredEditorPlugin();
 };
 
-#endif // TEXTURE_EDITOR_PLUGIN_H
+#endif // TEXTURE_LAYERED_EDITOR_PLUGIN_H

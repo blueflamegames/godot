@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -32,9 +32,9 @@
 
 #include "core/templates/sort_array.h"
 
-int TriangleMesh::_create_bvh(BVH *p_bvh, BVH **p_bb, int p_from, int p_size, int p_depth, int &max_depth, int &max_alloc) {
-	if (p_depth > max_depth) {
-		max_depth = p_depth;
+int TriangleMesh::_create_bvh(BVH *p_bvh, BVH **p_bb, int p_from, int p_size, int p_depth, int &r_max_depth, int &r_max_alloc) {
+	if (p_depth > r_max_depth) {
+		r_max_depth = p_depth;
 	}
 
 	if (p_size == 1) {
@@ -70,13 +70,13 @@ int TriangleMesh::_create_bvh(BVH *p_bvh, BVH **p_bb, int p_from, int p_size, in
 		} break;
 	}
 
-	int left = _create_bvh(p_bvh, p_bb, p_from, p_size / 2, p_depth + 1, max_depth, max_alloc);
-	int right = _create_bvh(p_bvh, p_bb, p_from + p_size / 2, p_size - p_size / 2, p_depth + 1, max_depth, max_alloc);
+	int left = _create_bvh(p_bvh, p_bb, p_from, p_size / 2, p_depth + 1, r_max_depth, r_max_alloc);
+	int right = _create_bvh(p_bvh, p_bb, p_from + p_size / 2, p_size - p_size / 2, p_depth + 1, r_max_depth, r_max_alloc);
 
-	int index = max_alloc++;
+	int index = r_max_alloc++;
 	BVH *_new = &p_bvh[index];
 	_new->aabb = aabb;
-	_new->center = aabb.position + aabb.size * 0.5;
+	_new->center = aabb.get_center();
 	_new->face_index = -1;
 	_new->left = left;
 	_new->right = right;
@@ -104,8 +104,10 @@ void TriangleMesh::get_indices(Vector<int> *r_triangles_indices) const {
 	}
 }
 
-void TriangleMesh::create(const Vector<Vector3> &p_faces) {
+void TriangleMesh::create(const Vector<Vector3> &p_faces, const Vector<int32_t> &p_surface_indices) {
 	valid = false;
+
+	ERR_FAIL_COND(p_surface_indices.size() && p_surface_indices.size() != p_faces.size());
 
 	int fc = p_faces.size();
 	ERR_FAIL_COND(!fc || ((fc % 3) != 0));
@@ -121,8 +123,9 @@ void TriangleMesh::create(const Vector<Vector3> &p_faces) {
 		//goes in-place.
 
 		const Vector3 *r = p_faces.ptr();
+		const int32_t *si = p_surface_indices.ptr();
 		Triangle *w = triangles.ptrw();
-		Map<Vector3, int> db;
+		HashMap<Vector3, int> db;
 
 		for (int i = 0; i < fc; i++) {
 			Triangle &f = w[i];
@@ -131,9 +134,9 @@ void TriangleMesh::create(const Vector<Vector3> &p_faces) {
 			for (int j = 0; j < 3; j++) {
 				int vidx = -1;
 				Vector3 vs = v[j].snapped(Vector3(0.0001, 0.0001, 0.0001));
-				Map<Vector3, int>::Element *E = db.find(vs);
+				HashMap<Vector3, int>::Iterator E = db.find(vs);
 				if (E) {
-					vidx = E->get();
+					vidx = E->value;
 				} else {
 					vidx = db.size();
 					db[vs] = vidx;
@@ -148,17 +151,18 @@ void TriangleMesh::create(const Vector<Vector3> &p_faces) {
 			}
 
 			f.normal = Face3(r[i * 3 + 0], r[i * 3 + 1], r[i * 3 + 2]).get_plane().get_normal();
+			f.surface_index = si ? si[i] : 0;
 
 			bw[i].left = -1;
 			bw[i].right = -1;
 			bw[i].face_index = i;
-			bw[i].center = bw[i].aabb.position + bw[i].aabb.size * 0.5;
+			bw[i].center = bw[i].aabb.get_center();
 		}
 
 		vertices.resize(db.size());
 		Vector3 *vw = vertices.ptrw();
-		for (Map<Vector3, int>::Element *E = db.front(); E; E = E->next()) {
-			vw[E->get()] = E->key();
+		for (const KeyValue<Vector3, int> &E : db) {
+			vw[E.value] = E.key;
 		}
 	}
 
@@ -211,10 +215,8 @@ Vector3 TriangleMesh::get_area_normal(const AABB &p_aabb) const {
 
 		switch (stack[level] >> VISITED_BIT_SHIFT) {
 			case TEST_AABB_BIT: {
-				bool valid = b.aabb.intersects(p_aabb);
-				if (!valid) {
+				if (!b.aabb.intersects(p_aabb)) {
 					stack[level] = (VISIT_DONE_BIT << VISITED_BIT_SHIFT) | node;
-
 				} else {
 					if (b.face_index >= 0) {
 						const Triangle &s = triangleptr[b.face_index];
@@ -231,14 +233,14 @@ Vector3 TriangleMesh::get_area_normal(const AABB &p_aabb) const {
 			}
 			case VISIT_LEFT_BIT: {
 				stack[level] = (VISIT_RIGHT_BIT << VISITED_BIT_SHIFT) | node;
-				stack[level + 1] = b.left | TEST_AABB_BIT;
 				level++;
+				stack[level] = b.left | TEST_AABB_BIT;
 				continue;
 			}
 			case VISIT_RIGHT_BIT: {
 				stack[level] = (VISIT_DONE_BIT << VISITED_BIT_SHIFT) | node;
-				stack[level + 1] = b.right | TEST_AABB_BIT;
 				level++;
+				stack[level] = b.right | TEST_AABB_BIT;
 				continue;
 			}
 			case VISIT_DONE_BIT: {
@@ -264,7 +266,7 @@ Vector3 TriangleMesh::get_area_normal(const AABB &p_aabb) const {
 	return n;
 }
 
-bool TriangleMesh::intersect_segment(const Vector3 &p_begin, const Vector3 &p_end, Vector3 &r_point, Vector3 &r_normal) const {
+bool TriangleMesh::intersect_segment(const Vector3 &p_begin, const Vector3 &p_end, Vector3 &r_point, Vector3 &r_normal, int32_t *r_surf_index) const {
 	uint32_t *stack = (uint32_t *)alloca(sizeof(int) * max_depth);
 
 	enum {
@@ -298,12 +300,8 @@ bool TriangleMesh::intersect_segment(const Vector3 &p_begin, const Vector3 &p_en
 
 		switch (stack[level] >> VISITED_BIT_SHIFT) {
 			case TEST_AABB_BIT: {
-				bool valid = b.aabb.intersects_segment(p_begin, p_end);
-				//bool valid = b.aabb.intersects(ray_aabb);
-
-				if (!valid) {
+				if (!b.aabb.intersects_segment(p_begin, p_end)) {
 					stack[level] = (VISIT_DONE_BIT << VISITED_BIT_SHIFT) | node;
-
 				} else {
 					if (b.face_index >= 0) {
 						const Triangle &s = triangleptr[b.face_index];
@@ -317,6 +315,9 @@ bool TriangleMesh::intersect_segment(const Vector3 &p_begin, const Vector3 &p_en
 								d = nd;
 								r_point = res;
 								r_normal = f3.get_plane().get_normal();
+								if (r_surf_index) {
+									*r_surf_index = s.surface_index;
+								}
 								inters = true;
 							}
 						}
@@ -331,14 +332,14 @@ bool TriangleMesh::intersect_segment(const Vector3 &p_begin, const Vector3 &p_en
 			}
 			case VISIT_LEFT_BIT: {
 				stack[level] = (VISIT_RIGHT_BIT << VISITED_BIT_SHIFT) | node;
-				stack[level + 1] = b.left | TEST_AABB_BIT;
 				level++;
+				stack[level] = b.left | TEST_AABB_BIT;
 				continue;
 			}
 			case VISIT_RIGHT_BIT: {
 				stack[level] = (VISIT_DONE_BIT << VISITED_BIT_SHIFT) | node;
-				stack[level + 1] = b.right | TEST_AABB_BIT;
 				level++;
+				stack[level] = b.right | TEST_AABB_BIT;
 				continue;
 			}
 			case VISIT_DONE_BIT: {
@@ -366,7 +367,7 @@ bool TriangleMesh::intersect_segment(const Vector3 &p_begin, const Vector3 &p_en
 	return inters;
 }
 
-bool TriangleMesh::intersect_ray(const Vector3 &p_begin, const Vector3 &p_dir, Vector3 &r_point, Vector3 &r_normal) const {
+bool TriangleMesh::intersect_ray(const Vector3 &p_begin, const Vector3 &p_dir, Vector3 &r_point, Vector3 &r_normal, int32_t *r_surf_index) const {
 	uint32_t *stack = (uint32_t *)alloca(sizeof(int) * max_depth);
 
 	enum {
@@ -400,10 +401,8 @@ bool TriangleMesh::intersect_ray(const Vector3 &p_begin, const Vector3 &p_dir, V
 
 		switch (stack[level] >> VISITED_BIT_SHIFT) {
 			case TEST_AABB_BIT: {
-				bool valid = b.aabb.intersects_ray(p_begin, p_dir);
-				if (!valid) {
+				if (!b.aabb.intersects_ray(p_begin, p_dir)) {
 					stack[level] = (VISIT_DONE_BIT << VISITED_BIT_SHIFT) | node;
-
 				} else {
 					if (b.face_index >= 0) {
 						const Triangle &s = triangleptr[b.face_index];
@@ -417,6 +416,9 @@ bool TriangleMesh::intersect_ray(const Vector3 &p_begin, const Vector3 &p_dir, V
 								d = nd;
 								r_point = res;
 								r_normal = f3.get_plane().get_normal();
+								if (r_surf_index) {
+									*r_surf_index = s.surface_index;
+								}
 								inters = true;
 							}
 						}
@@ -431,14 +433,14 @@ bool TriangleMesh::intersect_ray(const Vector3 &p_begin, const Vector3 &p_dir, V
 			}
 			case VISIT_LEFT_BIT: {
 				stack[level] = (VISIT_RIGHT_BIT << VISITED_BIT_SHIFT) | node;
-				stack[level + 1] = b.left | TEST_AABB_BIT;
 				level++;
+				stack[level] = b.left | TEST_AABB_BIT;
 				continue;
 			}
 			case VISIT_RIGHT_BIT: {
 				stack[level] = (VISIT_DONE_BIT << VISITED_BIT_SHIFT) | node;
-				stack[level + 1] = b.right | TEST_AABB_BIT;
 				level++;
+				stack[level] = b.right | TEST_AABB_BIT;
 				continue;
 			}
 			case VISIT_DONE_BIT: {
@@ -498,10 +500,8 @@ bool TriangleMesh::intersect_convex_shape(const Plane *p_planes, int p_plane_cou
 
 		switch (stack[level] >> VISITED_BIT_SHIFT) {
 			case TEST_AABB_BIT: {
-				bool valid = b.aabb.intersects_convex_shape(p_planes, p_plane_count, p_points, p_point_count);
-				if (!valid) {
+				if (!b.aabb.intersects_convex_shape(p_planes, p_plane_count, p_points, p_point_count)) {
 					stack[level] = (VISIT_DONE_BIT << VISITED_BIT_SHIFT) | node;
-
 				} else {
 					if (b.face_index >= 0) {
 						const Triangle &s = triangleptr[b.face_index];
@@ -551,14 +551,14 @@ bool TriangleMesh::intersect_convex_shape(const Plane *p_planes, int p_plane_cou
 			}
 			case VISIT_LEFT_BIT: {
 				stack[level] = (VISIT_RIGHT_BIT << VISITED_BIT_SHIFT) | node;
-				stack[level + 1] = b.left | TEST_AABB_BIT;
 				level++;
+				stack[level] = b.left | TEST_AABB_BIT;
 				continue;
 			}
 			case VISIT_RIGHT_BIT: {
 				stack[level] = (VISIT_DONE_BIT << VISITED_BIT_SHIFT) | node;
-				stack[level + 1] = b.right | TEST_AABB_BIT;
 				level++;
+				stack[level] = b.right | TEST_AABB_BIT;
 				continue;
 			}
 			case VISIT_DONE_BIT: {
@@ -600,7 +600,7 @@ bool TriangleMesh::inside_convex_shape(const Plane *p_planes, int p_plane_count,
 	const Vector3 *vertexptr = vertices.ptr();
 	const BVH *bvhptr = bvh.ptr();
 
-	Transform scale(Basis().scaled(p_scale));
+	Transform3D scale(Basis().scaled(p_scale));
 
 	int pos = bvh.size() - 1;
 
@@ -644,14 +644,14 @@ bool TriangleMesh::inside_convex_shape(const Plane *p_planes, int p_plane_count,
 			}
 			case VISIT_LEFT_BIT: {
 				stack[level] = (VISIT_RIGHT_BIT << VISITED_BIT_SHIFT) | node;
-				stack[level + 1] = b.left | TEST_AABB_BIT;
 				level++;
+				stack[level] = b.left | TEST_AABB_BIT;
 				continue;
 			}
 			case VISIT_RIGHT_BIT: {
 				stack[level] = (VISIT_DONE_BIT << VISITED_BIT_SHIFT) | node;
-				stack[level + 1] = b.right | TEST_AABB_BIT;
 				level++;
+				stack[level] = b.right | TEST_AABB_BIT;
 				continue;
 			}
 			case VISIT_DONE_BIT: {

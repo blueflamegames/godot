@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -50,16 +50,16 @@ public:
 	virtual void set_loop(bool p_enable) = 0;
 	virtual bool has_loop() const = 0;
 
-	virtual float get_length() const = 0;
+	virtual double get_length() const = 0;
 
-	virtual float get_playback_position() const = 0;
-	virtual void seek(float p_time) = 0;
+	virtual double get_playback_position() const = 0;
+	virtual void seek(double p_time) = 0;
 
 	virtual void set_audio_track(int p_idx) = 0;
 
 	virtual Ref<Texture2D> get_texture() const = 0;
 
-	virtual void update(float p_delta) = 0;
+	virtual void update(double p_delta) = 0;
 
 	virtual void set_mix_callback(AudioMixCallback p_callback, void *p_userdata) = 0;
 	virtual int get_channels() const = 0;
@@ -72,7 +72,7 @@ class VideoStream : public Resource {
 
 public:
 	virtual void set_audio_track(int p_track) = 0;
-	virtual Ref<VideoStreamPlayback> instance_playback() = 0;
+	virtual Ref<VideoStreamPlayback> instantiate_playback() = 0;
 };
 
-#endif
+#endif // VIDEO_STREAM_H

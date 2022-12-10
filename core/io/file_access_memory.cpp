@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,15 +31,14 @@
 #include "file_access_memory.h"
 
 #include "core/config/project_settings.h"
-#include "core/os/copymem.h"
-#include "core/os/dir_access.h"
-#include "core/templates/map.h"
+#include "core/io/dir_access.h"
+#include "core/templates/rb_map.h"
 
-static Map<String, Vector<uint8_t>> *files = nullptr;
+static HashMap<String, Vector<uint8_t>> *files = nullptr;
 
 void FileAccessMemory::register_file(String p_name, Vector<uint8_t> p_data) {
 	if (!files) {
-		files = memnew((Map<String, Vector<uint8_t>>));
+		files = memnew((HashMap<String, Vector<uint8_t>>));
 	}
 
 	String name;
@@ -61,7 +60,7 @@ void FileAccessMemory::cleanup() {
 	memdelete(files);
 }
 
-FileAccess *FileAccessMemory::create() {
+Ref<FileAccess> FileAccessMemory::create() {
 	return memnew(FileAccessMemory);
 }
 
@@ -72,38 +71,34 @@ bool FileAccessMemory::file_exists(const String &p_name) {
 	return files && (files->find(name) != nullptr);
 }
 
-Error FileAccessMemory::open_custom(const uint8_t *p_data, int p_len) {
+Error FileAccessMemory::open_custom(const uint8_t *p_data, uint64_t p_len) {
 	data = (uint8_t *)p_data;
 	length = p_len;
 	pos = 0;
 	return OK;
 }
 
-Error FileAccessMemory::_open(const String &p_path, int p_mode_flags) {
+Error FileAccessMemory::open_internal(const String &p_path, int p_mode_flags) {
 	ERR_FAIL_COND_V(!files, ERR_FILE_NOT_FOUND);
 
 	String name = fix_path(p_path);
 	//name = DirAccess::normalize_path(name);
 
-	Map<String, Vector<uint8_t>>::Element *E = files->find(name);
+	HashMap<String, Vector<uint8_t>>::Iterator E = files->find(name);
 	ERR_FAIL_COND_V_MSG(!E, ERR_FILE_NOT_FOUND, "Can't find file '" + p_path + "'.");
 
-	data = E->get().ptrw();
-	length = E->get().size();
+	data = E->value.ptrw();
+	length = E->value.size();
 	pos = 0;
 
 	return OK;
-}
-
-void FileAccessMemory::close() {
-	data = nullptr;
 }
 
 bool FileAccessMemory::is_open() const {
 	return data != nullptr;
 }
 
-void FileAccessMemory::seek(size_t p_position) {
+void FileAccessMemory::seek(uint64_t p_position) {
 	ERR_FAIL_COND(!data);
 	pos = p_position;
 }
@@ -113,12 +108,12 @@ void FileAccessMemory::seek_end(int64_t p_position) {
 	pos = length + p_position;
 }
 
-size_t FileAccessMemory::get_position() const {
+uint64_t FileAccessMemory::get_position() const {
 	ERR_FAIL_COND_V(!data, 0);
 	return pos;
 }
 
-size_t FileAccessMemory::get_len() const {
+uint64_t FileAccessMemory::get_length() const {
 	ERR_FAIL_COND_V(!data, 0);
 	return length;
 }
@@ -137,19 +132,18 @@ uint8_t FileAccessMemory::get_8() const {
 	return ret;
 }
 
-int FileAccessMemory::get_buffer(uint8_t *p_dst, int p_length) const {
+uint64_t FileAccessMemory::get_buffer(uint8_t *p_dst, uint64_t p_length) const {
 	ERR_FAIL_COND_V(!p_dst && p_length > 0, -1);
-	ERR_FAIL_COND_V(p_length < 0, -1);
 	ERR_FAIL_COND_V(!data, -1);
 
-	int left = length - pos;
-	int read = MIN(p_length, left);
+	uint64_t left = length - pos;
+	uint64_t read = MIN(p_length, left);
 
 	if (read < p_length) {
 		WARN_PRINT("Reading less data than requested");
 	}
 
-	copymem(p_dst, &data[pos], read);
+	memcpy(p_dst, &data[pos], read);
 	pos += p_length;
 
 	return read;
@@ -169,13 +163,14 @@ void FileAccessMemory::store_8(uint8_t p_byte) {
 	data[pos++] = p_byte;
 }
 
-void FileAccessMemory::store_buffer(const uint8_t *p_src, int p_length) {
-	int left = length - pos;
-	int write = MIN(p_length, left);
+void FileAccessMemory::store_buffer(const uint8_t *p_src, uint64_t p_length) {
+	ERR_FAIL_COND(!p_src && p_length > 0);
+	uint64_t left = length - pos;
+	uint64_t write = MIN(p_length, left);
 	if (write < p_length) {
 		WARN_PRINT("Writing less data than requested");
 	}
 
-	copymem(&data[pos], p_src, write);
+	memcpy(&data[pos], p_src, write);
 	pos += p_length;
 }

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -33,13 +33,13 @@
 
 #include "scene/2d/node_2d.h"
 #include "scene/resources/sprite_frames.h"
-#include "scene/resources/texture.h"
 
 class AnimatedSprite2D : public Node2D {
 	GDCLASS(AnimatedSprite2D, Node2D);
 
 	Ref<SpriteFrames> frames;
 	bool playing = false;
+	bool playing_backwards = false;
 	bool backwards = false;
 	StringName animation = "default";
 	int frame = 0;
@@ -56,16 +56,14 @@ class AnimatedSprite2D : public Node2D {
 
 	void _res_changed();
 
-	float _get_frame_duration();
+	double _get_frame_duration();
 	void _reset_timeout();
-	void _set_playing(bool p_playing);
-	bool _is_playing() const;
 	Rect2 _get_rect() const;
 
 protected:
 	static void _bind_methods();
 	void _notification(int p_what);
-	virtual void _validate_property(PropertyInfo &property) const override;
+	void _validate_property(PropertyInfo &p_property) const;
 
 public:
 #ifdef TOOLS_ENABLED
@@ -84,8 +82,10 @@ public:
 	void set_sprite_frames(const Ref<SpriteFrames> &p_frames);
 	Ref<SpriteFrames> get_sprite_frames() const;
 
-	void play(const StringName &p_animation = StringName(), const bool p_backwards = false);
+	void play(const StringName &p_animation = StringName(), bool p_backwards = false);
 	void stop();
+
+	void set_playing(bool p_playing);
 	bool is_playing() const;
 
 	void set_animation(const StringName &p_animation);
@@ -94,8 +94,8 @@ public:
 	void set_frame(int p_frame);
 	int get_frame() const;
 
-	void set_speed_scale(float p_speed_scale);
-	float get_speed_scale() const;
+	void set_speed_scale(double p_speed_scale);
+	double get_speed_scale() const;
 
 	void set_centered(bool p_center);
 	bool is_centered() const;
@@ -109,8 +109,10 @@ public:
 	void set_flip_v(bool p_flip);
 	bool is_flipped_v() const;
 
-	virtual String get_configuration_warning() const override;
+	PackedStringArray get_configuration_warnings() const override;
+	virtual void get_argument_options(const StringName &p_function, int p_idx, List<String> *r_options) const override;
+
 	AnimatedSprite2D();
 };
 
-#endif // ANIMATED_SPRITE_H
+#endif // ANIMATED_SPRITE_2D_H

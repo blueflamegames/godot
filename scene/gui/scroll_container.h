@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -38,11 +38,19 @@
 class ScrollContainer : public Container {
 	GDCLASS(ScrollContainer, Container);
 
-	HScrollBar *h_scroll;
-	VScrollBar *v_scroll;
+public:
+	enum ScrollMode {
+		SCROLL_MODE_DISABLED = 0,
+		SCROLL_MODE_AUTO,
+		SCROLL_MODE_SHOW_ALWAYS,
+		SCROLL_MODE_SHOW_NEVER,
+	};
 
-	Size2 child_max_size;
-	Size2 scroll;
+private:
+	HScrollBar *h_scroll = nullptr;
+	VScrollBar *v_scroll = nullptr;
+
+	mutable Size2 largest_child_min_size; // The largest one among the min sizes of all available child controls.
 
 	void update_scrollbars();
 
@@ -50,26 +58,29 @@ class ScrollContainer : public Container {
 	Vector2 drag_accum;
 	Vector2 drag_from;
 	Vector2 last_drag_accum;
-	float last_drag_time = 0.0;
-	float time_since_motion = 0.0;
+	float time_since_motion = 0.0f;
 	bool drag_touching = false;
 	bool drag_touching_deaccel = false;
-	bool click_handled = false;
 	bool beyond_deadzone = false;
 
-	bool scroll_h = true;
-	bool scroll_v = true;
+	ScrollMode horizontal_scroll_mode = SCROLL_MODE_AUTO;
+	ScrollMode vertical_scroll_mode = SCROLL_MODE_AUTO;
 
 	int deadzone = 0;
 	bool follow_focus = false;
 
+	struct ThemeCache {
+		Ref<StyleBox> panel_style;
+	} theme_cache;
+
 	void _cancel_drag();
 
 protected:
+	virtual void _update_theme_item_cache() override;
 	Size2 get_minimum_size() const override;
 
-	void _gui_input(const Ref<InputEvent> &p_gui_input);
-	void _update_dimensions();
+	void _gui_focus_changed(Control *p_control);
+	void _reposition_children();
 	void _notification(int p_what);
 
 	void _scroll_moved(float);
@@ -77,20 +88,21 @@ protected:
 
 	bool _updating_scrollbars = false;
 	void _update_scrollbar_position();
-	void _ensure_focused_visible(Control *p_node);
 
 public:
-	int get_v_scroll() const;
-	void set_v_scroll(int p_pos);
+	virtual void gui_input(const Ref<InputEvent> &p_gui_input) override;
 
-	int get_h_scroll() const;
 	void set_h_scroll(int p_pos);
+	int get_h_scroll() const;
 
-	void set_enable_h_scroll(bool p_enable);
-	bool is_h_scroll_enabled() const;
+	void set_v_scroll(int p_pos);
+	int get_v_scroll() const;
 
-	void set_enable_v_scroll(bool p_enable);
-	bool is_v_scroll_enabled() const;
+	void set_horizontal_scroll_mode(ScrollMode p_mode);
+	ScrollMode get_horizontal_scroll_mode() const;
+
+	void set_vertical_scroll_mode(ScrollMode p_mode);
+	ScrollMode get_vertical_scroll_mode() const;
 
 	int get_deadzone() const;
 	void set_deadzone(int p_deadzone);
@@ -98,14 +110,15 @@ public:
 	bool is_following_focus() const;
 	void set_follow_focus(bool p_follow);
 
-	HScrollBar *get_h_scrollbar();
-	VScrollBar *get_v_scrollbar();
+	HScrollBar *get_h_scroll_bar();
+	VScrollBar *get_v_scroll_bar();
+	void ensure_control_visible(Control *p_control);
 
-	virtual bool clips_input() const override;
-
-	virtual String get_configuration_warning() const override;
+	PackedStringArray get_configuration_warnings() const override;
 
 	ScrollContainer();
 };
 
-#endif
+VARIANT_ENUM_CAST(ScrollContainer::ScrollMode);
+
+#endif // SCROLL_CONTAINER_H

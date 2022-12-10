@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -33,7 +33,7 @@
 
 #include "../gdscript_parser.h"
 #include "core/variant/variant.h"
-#include "lsp.hpp"
+#include "godot_lsp.h"
 
 #ifndef LINE_NUMBER_TO_INDEX
 #define LINE_NUMBER_TO_INDEX(p_line) ((p_line)-1)
@@ -85,7 +85,7 @@ public:
 	Error get_left_function_call(const lsp::Position &p_position, lsp::Position &r_func_pos, int &r_arg_index) const;
 
 	String get_text_for_completion(const lsp::Position &p_cursor) const;
-	String get_text_for_lookup_symbol(const lsp::Position &p_cursor, const String &p_symbol = "", bool p_func_requred = false) const;
+	String get_text_for_lookup_symbol(const lsp::Position &p_cursor, const String &p_symbol = "", bool p_func_required = false) const;
 	String get_identifier_under_position(const lsp::Position &p_position, Vector2i &p_offset) const;
 	String get_uri() const;
 
@@ -99,4 +99,4 @@ public:
 	Error parse(const String &p_code, const String &p_path);
 };
 
-#endif
+#endif // GDSCRIPT_EXTEND_PARSER_H

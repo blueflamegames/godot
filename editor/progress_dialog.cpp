@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -32,7 +32,7 @@
 
 #include "core/object/message_queue.h"
 #include "core/os/os.h"
-#include "editor_scale.h"
+#include "editor/editor_scale.h"
 #include "main/main.h"
 #include "servers/display_server.h"
 
@@ -50,7 +50,7 @@ void BackgroundProgress::_add_task(const String &p_task, const String &p_label, 
 	Control *ec = memnew(Control);
 	ec->set_h_size_flags(SIZE_EXPAND_FILL);
 	ec->set_v_size_flags(SIZE_EXPAND_FILL);
-	t.progress->set_anchors_and_offsets_preset(Control::PRESET_WIDE);
+	t.progress->set_anchors_and_offsets_preset(Control::PRESET_FULL_RECT);
 	ec->add_child(t.progress);
 	ec->set_custom_minimum_size(Size2(80, 5) * EDSCALE);
 	t.hb->add_child(ec);
@@ -63,9 +63,9 @@ void BackgroundProgress::_add_task(const String &p_task, const String &p_label, 
 void BackgroundProgress::_update() {
 	_THREAD_SAFE_METHOD_
 
-	for (Map<String, int>::Element *E = updates.front(); E; E = E->next()) {
-		if (tasks.has(E->key())) {
-			_task_step(E->key(), E->get());
+	for (const KeyValue<String, int> &E : updates) {
+		if (tasks.has(E.key)) {
+			_task_step(E.key, E.value);
 		}
 	}
 
@@ -139,7 +139,7 @@ void ProgressDialog::_popup() {
 	Size2 ms = main->get_combined_minimum_size();
 	ms.width = MAX(500 * EDSCALE, ms.width);
 
-	Ref<StyleBox> style = main->get_theme_stylebox("panel", "PopupMenu");
+	Ref<StyleBox> style = main->get_theme_stylebox(SNAME("panel"), SNAME("PopupMenu"));
 	ms += style->get_minimum_size();
 	main->set_offset(SIDE_LEFT, style->get_margin(SIDE_LEFT));
 	main->set_offset(SIDE_RIGHT, -style->get_margin(SIDE_RIGHT));
@@ -176,7 +176,7 @@ void ProgressDialog::add_task(const String &p_task, const String &p_label, int p
 	} else {
 		cancel_hb->hide();
 	}
-	cancel_hb->raise();
+	cancel_hb->move_to_front();
 	cancelled = false;
 	_popup();
 	if (p_can_cancel) {
@@ -207,7 +207,9 @@ bool ProgressDialog::task_step(const String &p_task, const String &p_state, int 
 		DisplayServer::get_singleton()->process_events();
 	}
 
+#ifndef ANDROID_ENABLED
 	Main::iteration(); // this will not work on a lot of platforms, so it's only meant for the editor
+#endif
 	return cancelled;
 }
 
@@ -235,7 +237,7 @@ void ProgressDialog::_bind_methods() {
 ProgressDialog::ProgressDialog() {
 	main = memnew(VBoxContainer);
 	add_child(main);
-	main->set_anchors_and_offsets_preset(Control::PRESET_WIDE);
+	main->set_anchors_and_offsets_preset(Control::PRESET_FULL_RECT);
 	set_exclusive(true);
 	last_progress_tick = 0;
 	singleton = this;

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -28,13 +28,16 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 
-#ifndef SPRITE_EDITOR_PLUGIN_H
-#define SPRITE_EDITOR_PLUGIN_H
+#ifndef SPRITE_2D_EDITOR_PLUGIN_H
+#define SPRITE_2D_EDITOR_PLUGIN_H
 
-#include "editor/editor_node.h"
 #include "editor/editor_plugin.h"
 #include "scene/2d/sprite_2d.h"
 #include "scene/gui/spin_box.h"
+
+class AcceptDialog;
+class ConfirmationDialog;
+class MenuButton;
 
 class Sprite2DEditor : public Control {
 	GDCLASS(Sprite2DEditor, Control);
@@ -48,16 +51,16 @@ class Sprite2DEditor : public Control {
 
 	Menu selected_menu_item;
 
-	Sprite2D *node;
+	Sprite2D *node = nullptr;
 
-	MenuButton *options;
+	MenuButton *options = nullptr;
 
-	ConfirmationDialog *outline_dialog;
+	ConfirmationDialog *outline_dialog = nullptr;
 
-	AcceptDialog *err_dialog;
+	AcceptDialog *err_dialog = nullptr;
 
-	ConfirmationDialog *debug_uv_dialog;
-	Control *debug_uv;
+	ConfirmationDialog *debug_uv_dialog = nullptr;
+	Control *debug_uv = nullptr;
 	Vector<Vector2> uv_lines;
 	Vector<Vector<Vector2>> outline_lines;
 	Vector<Vector<Vector2>> computed_outline_lines;
@@ -65,10 +68,10 @@ class Sprite2DEditor : public Control {
 	Vector<Vector2> computed_uv;
 	Vector<int> computed_indices;
 
-	SpinBox *simplification;
-	SpinBox *grow_pixels;
-	SpinBox *shrink_pixels;
-	Button *update_preview;
+	SpinBox *simplification = nullptr;
+	SpinBox *grow_pixels = nullptr;
+	SpinBox *shrink_pixels = nullptr;
+	Button *update_preview = nullptr;
 
 	void _menu_option(int p_option);
 
@@ -88,6 +91,7 @@ class Sprite2DEditor : public Control {
 
 protected:
 	void _node_removed(Node *p_node);
+	void _notification(int p_what);
 	static void _bind_methods();
 
 public:
@@ -98,8 +102,7 @@ public:
 class Sprite2DEditorPlugin : public EditorPlugin {
 	GDCLASS(Sprite2DEditorPlugin, EditorPlugin);
 
-	Sprite2DEditor *sprite_editor;
-	EditorNode *editor;
+	Sprite2DEditor *sprite_editor = nullptr;
 
 public:
 	virtual String get_name() const override { return "Sprite2D"; }
@@ -108,8 +111,8 @@ public:
 	virtual bool handles(Object *p_object) const override;
 	virtual void make_visible(bool p_visible) override;
 
-	Sprite2DEditorPlugin(EditorNode *p_node);
+	Sprite2DEditorPlugin();
 	~Sprite2DEditorPlugin();
 };
 
-#endif // SPRITE_EDITOR_PLUGIN_H
+#endif // SPRITE_2D_EDITOR_PLUGIN_H

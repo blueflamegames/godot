@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,14 +31,6 @@
 #include "panel_container.h"
 
 Size2 PanelContainer::get_minimum_size() const {
-	Ref<StyleBox> style;
-
-	if (has_theme_stylebox("panel")) {
-		style = get_theme_stylebox("panel");
-	} else {
-		style = get_theme_stylebox("panel", "PanelContainer");
-	}
-
 	Size2 ms;
 	for (int i = 0; i < get_child_count(); i++) {
 		Control *c = Object::cast_to<Control>(get_child(i));
@@ -54,53 +46,63 @@ Size2 PanelContainer::get_minimum_size() const {
 		ms.height = MAX(ms.height, minsize.height);
 	}
 
-	if (style.is_valid()) {
-		ms += style->get_minimum_size();
+	if (theme_cache.panel_style.is_valid()) {
+		ms += theme_cache.panel_style->get_minimum_size();
 	}
 	return ms;
 }
 
+Vector<int> PanelContainer::get_allowed_size_flags_horizontal() const {
+	Vector<int> flags;
+	flags.append(SIZE_FILL);
+	flags.append(SIZE_SHRINK_BEGIN);
+	flags.append(SIZE_SHRINK_CENTER);
+	flags.append(SIZE_SHRINK_END);
+	return flags;
+}
+
+Vector<int> PanelContainer::get_allowed_size_flags_vertical() const {
+	Vector<int> flags;
+	flags.append(SIZE_FILL);
+	flags.append(SIZE_SHRINK_BEGIN);
+	flags.append(SIZE_SHRINK_CENTER);
+	flags.append(SIZE_SHRINK_END);
+	return flags;
+}
+
+void PanelContainer::_update_theme_item_cache() {
+	Container::_update_theme_item_cache();
+
+	theme_cache.panel_style = get_theme_stylebox(SNAME("panel"));
+}
+
 void PanelContainer::_notification(int p_what) {
-	if (p_what == NOTIFICATION_DRAW) {
-		RID ci = get_canvas_item();
-		Ref<StyleBox> style;
+	switch (p_what) {
+		case NOTIFICATION_DRAW: {
+			RID ci = get_canvas_item();
+			theme_cache.panel_style->draw(ci, Rect2(Point2(), get_size()));
+		} break;
 
-		if (has_theme_stylebox("panel")) {
-			style = get_theme_stylebox("panel");
-		} else {
-			style = get_theme_stylebox("panel", "PanelContainer");
-		}
-
-		style->draw(ci, Rect2(Point2(), get_size()));
-	}
-
-	if (p_what == NOTIFICATION_SORT_CHILDREN) {
-		Ref<StyleBox> style;
-
-		if (has_theme_stylebox("panel")) {
-			style = get_theme_stylebox("panel");
-		} else {
-			style = get_theme_stylebox("panel", "PanelContainer");
-		}
-
-		Size2 size = get_size();
-		Point2 ofs;
-		if (style.is_valid()) {
-			size -= style->get_minimum_size();
-			ofs += style->get_offset();
-		}
-
-		for (int i = 0; i < get_child_count(); i++) {
-			Control *c = Object::cast_to<Control>(get_child(i));
-			if (!c || !c->is_visible_in_tree()) {
-				continue;
-			}
-			if (c->is_set_as_top_level()) {
-				continue;
+		case NOTIFICATION_SORT_CHILDREN: {
+			Size2 size = get_size();
+			Point2 ofs;
+			if (theme_cache.panel_style.is_valid()) {
+				size -= theme_cache.panel_style->get_minimum_size();
+				ofs += theme_cache.panel_style->get_offset();
 			}
 
-			fit_child_in_rect(c, Rect2(ofs, size));
-		}
+			for (int i = 0; i < get_child_count(); i++) {
+				Control *c = Object::cast_to<Control>(get_child(i));
+				if (!c || !c->is_visible_in_tree()) {
+					continue;
+				}
+				if (c->is_set_as_top_level()) {
+					continue;
+				}
+
+				fit_child_in_rect(c, Rect2(ofs, size));
+			}
+		} break;
 	}
 }
 

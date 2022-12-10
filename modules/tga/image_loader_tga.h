@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -33,9 +33,8 @@
 
 #include "core/io/image_loader.h"
 
-/**
-	@author SaracenOne
-*/
+#define TGA_IMAGE_DESCRIPTOR_ALPHA_MASK 0xf
+
 class ImageLoaderTGA : public ImageFormatLoader {
 	enum tga_type_e {
 		TGA_TYPE_NO_DATA = 0,
@@ -72,13 +71,13 @@ class ImageLoaderTGA : public ImageFormatLoader {
 		uint8_t pixel_depth = 0;
 		uint8_t image_descriptor = 0;
 	};
-	static Error decode_tga_rle(const uint8_t *p_compressed_buffer, size_t p_pixel_size, uint8_t *p_uncompressed_buffer, size_t p_output_size);
-	static Error convert_to_image(Ref<Image> p_image, const uint8_t *p_buffer, const tga_header_s &p_header, const uint8_t *p_palette, const bool p_is_monochrome, size_t p_output_size);
+	static Error decode_tga_rle(const uint8_t *p_compressed_buffer, size_t p_pixel_size, uint8_t *p_uncompressed_buffer, size_t p_output_size, size_t p_input_size);
+	static Error convert_to_image(Ref<Image> p_image, const uint8_t *p_buffer, const tga_header_s &p_header, const uint8_t *p_palette, const bool p_is_monochrome, size_t p_input_size);
 
 public:
-	virtual Error load_image(Ref<Image> p_image, FileAccess *f, bool p_force_linear, float p_scale);
+	virtual Error load_image(Ref<Image> p_image, Ref<FileAccess> f, BitField<ImageFormatLoader::LoaderFlags> p_flags, float p_scale);
 	virtual void get_recognized_extensions(List<String> *p_extensions) const;
 	ImageLoaderTGA();
 };
 
-#endif
+#endif // IMAGE_LOADER_TGA_H

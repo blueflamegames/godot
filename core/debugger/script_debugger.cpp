@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -50,7 +50,7 @@ int ScriptDebugger::get_depth() const {
 
 void ScriptDebugger::insert_breakpoint(int p_line, const StringName &p_source) {
 	if (!breakpoints.has(p_line)) {
-		breakpoints[p_line] = Set<StringName>();
+		breakpoints[p_line] = HashSet<StringName>();
 	}
 	breakpoints[p_line].insert(p_source);
 }
@@ -100,11 +100,11 @@ void ScriptDebugger::debug(ScriptLanguage *p_lang, bool p_can_continue, bool p_i
 	break_lang = prev;
 }
 
-void ScriptDebugger::send_error(const String &p_func, const String &p_file, int p_line, const String &p_err, const String &p_descr, ErrorHandlerType p_type, const Vector<StackInfo> &p_stack_info) {
+void ScriptDebugger::send_error(const String &p_func, const String &p_file, int p_line, const String &p_err, const String &p_descr, bool p_editor_notify, ErrorHandlerType p_type, const Vector<StackInfo> &p_stack_info) {
 	// Store stack info, this is ugly, but allows us to separate EngineDebugger and ScriptDebugger. There might be a better way.
 	error_stack_info.append_array(p_stack_info);
-	EngineDebugger::get_singleton()->send_error(p_func, p_file, p_line, p_err, p_descr, p_type);
-	error_stack_info.resize(0);
+	EngineDebugger::get_singleton()->send_error(p_func, p_file, p_line, p_err, p_descr, p_editor_notify, p_type);
+	error_stack_info.clear();
 }
 
 Vector<ScriptLanguage::StackInfo> ScriptDebugger::get_error_stack_info() const {

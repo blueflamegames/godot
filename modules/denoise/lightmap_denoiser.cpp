@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,6 +31,8 @@
 #include "lightmap_denoiser.h"
 #include "denoise_wrapper.h"
 
+#include "core/io/image.h"
+
 LightmapDenoiser *LightmapDenoiserOIDN::create_oidn_denoiser() {
 	return memnew(LightmapDenoiserOIDN);
 }
@@ -49,7 +51,7 @@ Ref<Image> LightmapDenoiserOIDN::denoise_image(const Ref<Image> &p_image) {
 		return p_image;
 	}
 
-	img->create(img->get_width(), img->get_height(), false, img->get_format(), data);
+	img->set_data(img->get_width(), img->get_height(), false, img->get_format(), data);
 	return img;
 }
 

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -35,19 +35,33 @@
 #include "core/os/thread.h"
 #include "core/typedefs.h"
 
+template <class T>
+class Vector;
+
 class Main {
 	static void print_help(const char *p_binary);
 	static uint64_t last_ticks;
+	static uint32_t hide_print_fps_attempts;
 	static uint32_t frames;
 	static uint32_t frame;
 	static bool force_redraw_requested;
 	static int iterating;
+	static bool agile_input_event_flushing;
 
 public:
-	static bool is_project_manager();
+	static bool is_cmdline_tool();
+#ifdef TOOLS_ENABLED
+	enum CLIScope {
+		CLI_SCOPE_TOOL, // Editor and project manager.
+		CLI_SCOPE_PROJECT,
+	};
+	static const Vector<String> &get_forwardable_cli_arguments(CLIScope p_scope);
+#endif
+
 	static int test_entrypoint(int argc, char *argv[], bool &tests_need_run);
 	static Error setup(const char *execpath, int argc, char *argv[], bool p_second_phase = true);
 	static Error setup2(Thread::ID p_main_tid_override = 0);
+	static String get_rendering_driver_name();
 #ifdef TESTS_ENABLED
 	static Error test_setup();
 	static void test_cleanup();
@@ -62,7 +76,7 @@ public:
 	static void cleanup(bool p_force = false);
 };
 
-// Test main override is for the testing behaviour.
+// Test main override is for the testing behavior.
 #define TEST_MAIN_OVERRIDE                                         \
 	bool run_test = false;                                         \
 	int return_code = Main::test_entrypoint(argc, argv, run_test); \

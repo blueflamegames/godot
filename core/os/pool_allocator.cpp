@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,18 +31,15 @@
 #include "pool_allocator.h"
 
 #include "core/error/error_macros.h"
-#include "core/os/copymem.h"
 #include "core/os/memory.h"
 #include "core/os/os.h"
 #include "core/string/print_string.h"
-
-#include <assert.h>
 
 #define COMPACT_CHUNK(m_entry, m_to_pos)                      \
 	do {                                                      \
 		void *_dst = &((unsigned char *)pool)[m_to_pos];      \
 		void *_src = &((unsigned char *)pool)[(m_entry).pos]; \
-		movemem(_dst, _src, aligned((m_entry).len));          \
+		memmove(_dst, _src, aligned((m_entry).len));          \
 		(m_entry).pos = m_to_pos;                             \
 	} while (0);
 
@@ -150,7 +147,7 @@ void PoolAllocator::compact_up(int p_from) {
 	}
 }
 
-bool PoolAllocator::find_entry_index(EntryIndicesPos *p_map_pos, Entry *p_entry) {
+bool PoolAllocator::find_entry_index(EntryIndicesPos *p_map_pos, const Entry *p_entry) {
 	EntryArrayPos entry_pos = entry_max;
 
 	for (int i = 0; i < entry_count; i++) {
@@ -170,11 +167,6 @@ bool PoolAllocator::find_entry_index(EntryIndicesPos *p_map_pos, Entry *p_entry)
 
 PoolAllocator::ID PoolAllocator::alloc(int p_size) {
 	ERR_FAIL_COND_V(p_size < 1, POOL_ALLOCATOR_INVALID_ID);
-#ifdef DEBUG_ENABLED
-	if (p_size > free_mem) {
-		OS::get_singleton()->debug_break();
-	}
-#endif
 	ERR_FAIL_COND_V(p_size > free_mem, POOL_ALLOCATOR_INVALID_ID);
 
 	mt_lock();
@@ -425,7 +417,7 @@ bool PoolAllocator::is_locked(ID p_mem) const {
 	}
 
 	mt_lock();
-	const Entry *e = ((PoolAllocator *)(this))->get_entry(p_mem);
+	const Entry *e = const_cast<PoolAllocator *>(this)->get_entry(p_mem);
 	if (!e) {
 		mt_unlock();
 		ERR_PRINT("!e");
@@ -483,7 +475,6 @@ void *PoolAllocator::get(ID p_mem) {
 		ERR_FAIL_COND_V(!e, nullptr);
 	}
 	if (e->lock == 0) {
-		//assert(0);
 		mt_unlock();
 		ERR_PRINT("e->lock == 0");
 		return nullptr;

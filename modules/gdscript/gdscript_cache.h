@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,16 +31,17 @@
 #ifndef GDSCRIPT_CACHE_H
 #define GDSCRIPT_CACHE_H
 
-#include "core/object/reference.h"
+#include "core/object/ref_counted.h"
 #include "core/os/mutex.h"
 #include "core/templates/hash_map.h"
-#include "core/templates/set.h"
+#include "core/templates/hash_set.h"
 #include "gdscript.h"
+#include "scene/resources/packed_scene.h"
 
 class GDScriptAnalyzer;
 class GDScriptParser;
 
-class GDScriptParserRef : public Reference {
+class GDScriptParserRef : public RefCounted {
 public:
 	enum Status {
 		EMPTY,
@@ -54,7 +55,9 @@ private:
 	GDScriptParser *parser = nullptr;
 	GDScriptAnalyzer *analyzer = nullptr;
 	Status status = EMPTY;
+	Error result = OK;
 	String path;
+	bool cleared = false;
 
 	friend class GDScriptCache;
 
@@ -63,6 +66,7 @@ public:
 	Status get_status() const;
 	GDScriptParser *get_parser() const;
 	Error raise_status(Status p_new_status);
+	void clear();
 
 	GDScriptParserRef() {}
 	~GDScriptParserRef();
@@ -71,24 +75,43 @@ public:
 class GDScriptCache {
 	// String key is full path.
 	HashMap<String, GDScriptParserRef *> parser_map;
-	HashMap<String, GDScript *> shallow_gdscript_cache;
-	HashMap<String, GDScript *> full_gdscript_cache;
-	HashMap<String, Set<String>> dependencies;
+	HashMap<String, Ref<GDScript>> shallow_gdscript_cache;
+	HashMap<String, Ref<GDScript>> full_gdscript_cache;
+	HashMap<String, HashSet<String>> dependencies;
+	HashMap<String, Ref<PackedScene>> packed_scene_cache;
+	HashMap<String, HashSet<String>> packed_scene_dependencies;
 
 	friend class GDScript;
 	friend class GDScriptParserRef;
+	friend class GDScriptInstance;
 
 	static GDScriptCache *singleton;
 
-	Mutex lock;
-	static void remove_script(const String &p_path);
+	bool destructing = false;
+
+	Mutex mutex;
 
 public:
+	static void move_script(const String &p_from, const String &p_to);
+	static void remove_script(const String &p_path);
 	static Ref<GDScriptParserRef> get_parser(const String &p_path, GDScriptParserRef::Status status, Error &r_error, const String &p_owner = String());
 	static String get_source_code(const String &p_path);
-	static Ref<GDScript> get_shallow_script(const String &p_path, const String &p_owner = String());
-	static Ref<GDScript> get_full_script(const String &p_path, Error &r_error, const String &p_owner = String());
+	static Ref<GDScript> get_shallow_script(const String &p_path, Error &r_error, const String &p_owner = String());
+	static Ref<GDScript> get_full_script(const String &p_path, Error &r_error, const String &p_owner = String(), bool p_update_from_disk = false);
+	static Ref<GDScript> get_cached_script(const String &p_path);
 	static Error finish_compiling(const String &p_owner);
+
+	static Ref<PackedScene> get_packed_scene(const String &p_path, Error &r_error, const String &p_owner = "");
+	static void clear_unreferenced_packed_scenes();
+
+	static bool is_destructing() {
+		if (singleton == nullptr) {
+			return true;
+		}
+		return singleton->destructing;
+	};
+
+	static void clear();
 
 	GDScriptCache();
 	~GDScriptCache();

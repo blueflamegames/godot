@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,15 +30,13 @@
 
 #include "texture_layered_editor_plugin.h"
 
-#include "core/config/project_settings.h"
-#include "core/io/resource_loader.h"
-#include "editor/editor_settings.h"
+#include "scene/gui/label.h"
 
-void TextureLayeredEditor::_gui_input(Ref<InputEvent> p_event) {
+void TextureLayeredEditor::gui_input(const Ref<InputEvent> &p_event) {
 	ERR_FAIL_COND(p_event.is_null());
 
 	Ref<InputEventMouseMotion> mm = p_event;
-	if (mm.is_valid() && mm->get_button_mask() & MOUSE_BUTTON_MASK_LEFT) {
+	if (mm.is_valid() && (mm->get_button_mask() & MouseButton::MASK_LEFT) != MouseButton::NONE) {
 		y_rot += -mm->get_relative().x * 0.01;
 		x_rot += mm->get_relative().y * 0.01;
 		_update_material();
@@ -50,18 +48,17 @@ void TextureLayeredEditor::_texture_rect_draw() {
 }
 
 void TextureLayeredEditor::_notification(int p_what) {
-	if (p_what == NOTIFICATION_READY) {
-		//get_scene()->connect("node_removed",this,"_node_removed");
-	}
-	if (p_what == NOTIFICATION_RESIZED) {
-		_texture_rect_update_area();
-	}
+	switch (p_what) {
+		case NOTIFICATION_RESIZED: {
+			_texture_rect_update_area();
+		} break;
 
-	if (p_what == NOTIFICATION_DRAW) {
-		Ref<Texture2D> checkerboard = get_theme_icon("Checkerboard", "EditorIcons");
-		Size2 size = get_size();
+		case NOTIFICATION_DRAW: {
+			Ref<Texture2D> checkerboard = get_theme_icon(SNAME("Checkerboard"), SNAME("EditorIcons"));
+			Size2 size = get_size();
 
-		draw_texture_rect(checkerboard, Rect2(Point2(), size), true);
+			draw_texture_rect(checkerboard, Rect2(Point2(), size), true);
+		} break;
 	}
 }
 
@@ -69,13 +66,13 @@ void TextureLayeredEditor::_texture_changed() {
 	if (!is_visible()) {
 		return;
 	}
-	update();
+	queue_redraw();
 }
 
 void TextureLayeredEditor::_update_material() {
-	materials[0]->set_shader_param("layer", layer->get_value());
-	materials[2]->set_shader_param("layer", layer->get_value());
-	materials[texture->get_layered_type()]->set_shader_param("tex", texture->get_rid());
+	materials[0]->set_shader_parameter("layer", layer->get_value());
+	materials[2]->set_shader_parameter("layer", layer->get_value());
+	materials[texture->get_layered_type()]->set_shader_parameter("tex", texture->get_rid());
 
 	Vector3 v(1, 1, 1);
 	v.normalize();
@@ -84,10 +81,10 @@ void TextureLayeredEditor::_update_material() {
 	b.rotate(Vector3(1, 0, 0), x_rot);
 	b.rotate(Vector3(0, 1, 0), y_rot);
 
-	materials[1]->set_shader_param("normal", v);
-	materials[1]->set_shader_param("rot", b);
-	materials[2]->set_shader_param("normal", v);
-	materials[2]->set_shader_param("rot", b);
+	materials[1]->set_shader_parameter("normal", v);
+	materials[1]->set_shader_parameter("rot", b);
+	materials[2]->set_shader_parameter("normal", v);
+	materials[2]->set_shader_parameter("rot", b);
 
 	String format = Image::get_format_name(texture->get_format());
 
@@ -104,46 +101,55 @@ void TextureLayeredEditor::_update_material() {
 }
 
 void TextureLayeredEditor::_make_shaders() {
-	String shader_2d_array = ""
-							 "shader_type canvas_item;\n"
-							 "uniform sampler2DArray tex;\n"
-							 "uniform float layer;\n"
-							 "void fragment() {\n"
-							 "  COLOR = textureLod(tex,vec3(UV,layer),0.0);\n"
-							 "}";
+	shaders[0].instantiate();
+	shaders[0]->set_code(R"(
+// TextureLayeredEditor preview shader (2D array).
 
-	shaders[0].instance();
-	shaders[0]->set_code(shader_2d_array);
+shader_type canvas_item;
 
-	String shader_cube = ""
-						 "shader_type canvas_item;\n"
-						 "uniform samplerCube tex;\n"
-						 "uniform vec3 normal;\n"
-						 "uniform mat3 rot;\n"
-						 "void fragment() {\n"
-						 "  vec3 n = rot * normalize(vec3(normal.xy*(UV * 2.0 - 1.0),normal.z));\n"
-						 "  COLOR = textureLod(tex,n,0.0);\n"
-						 "}";
+uniform sampler2DArray tex;
+uniform float layer;
 
-	shaders[1].instance();
-	shaders[1]->set_code(shader_cube);
+void fragment() {
+	COLOR = textureLod(tex, vec3(UV, layer), 0.0);
+}
+)");
 
-	String shader_cube_array = ""
-							   "shader_type canvas_item;\n"
-							   "uniform samplerCubeArray tex;\n"
-							   "uniform vec3 normal;\n"
-							   "uniform mat3 rot;\n"
-							   "uniform float layer;\n"
-							   "void fragment() {\n"
-							   "  vec3 n = rot * normalize(vec3(normal.xy*(UV * 2.0 - 1.0),normal.z));\n"
-							   "  COLOR = textureLod(tex,vec4(n,layer),0.0);\n"
-							   "}";
+	shaders[1].instantiate();
+	shaders[1]->set_code(R"(
+// TextureLayeredEditor preview shader (cubemap).
 
-	shaders[2].instance();
-	shaders[2]->set_code(shader_cube_array);
+shader_type canvas_item;
+
+uniform samplerCube tex;
+uniform vec3 normal;
+uniform mat3 rot;
+
+void fragment() {
+	vec3 n = rot * normalize(vec3(normal.xy * (UV * 2.0 - 1.0), normal.z));
+	COLOR = textureLod(tex, n, 0.0);
+}
+)");
+
+	shaders[2].instantiate();
+	shaders[2]->set_code(R"(
+// TextureLayeredEditor preview shader (cubemap array).
+
+shader_type canvas_item;
+
+uniform samplerCubeArray tex;
+uniform vec3 normal;
+uniform mat3 rot;
+uniform float layer;
+
+void fragment() {
+	vec3 n = rot * normalize(vec3(normal.xy * (UV * 2.0 - 1.0), normal.z));
+	COLOR = textureLod(tex, vec4(n, layer), 0.0);
+}
+)");
 
 	for (int i = 0; i < 3; i++) {
-		materials[i].instance();
+		materials[i].instantiate();
 		materials[i]->set_shader(shaders[i]);
 	}
 }
@@ -186,7 +192,7 @@ void TextureLayeredEditor::edit(Ref<TextureLayered> p_texture) {
 		}
 
 		texture->connect("changed", callable_mp(this, &TextureLayeredEditor::_texture_changed));
-		update();
+		queue_redraw();
 		texture_rect->set_material(materials[texture->get_layered_type()]);
 		setting = true;
 		if (texture->get_layered_type() == TextureLayered::LAYERED_TYPE_2D_ARRAY) {
@@ -208,11 +214,6 @@ void TextureLayeredEditor::edit(Ref<TextureLayered> p_texture) {
 	} else {
 		hide();
 	}
-}
-
-void TextureLayeredEditor::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("_gui_input"), &TextureLayeredEditor::_gui_input);
-	ClassDB::bind_method(D_METHOD("_layer_changed"), &TextureLayeredEditor::_layer_changed);
 }
 
 TextureLayeredEditor::TextureLayeredEditor() {
@@ -241,12 +242,12 @@ TextureLayeredEditor::TextureLayeredEditor() {
 	info->set_v_grow_direction(GROW_DIRECTION_BEGIN);
 	info->add_theme_color_override("font_color", Color(1, 1, 1, 1));
 	info->add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.5));
-	info->add_theme_constant_override("shadow_as_outline", 1);
+	info->add_theme_constant_override("shadow_outline_size", 1);
 	info->add_theme_constant_override("shadow_offset_x", 2);
 	info->add_theme_constant_override("shadow_offset_y", 2);
 
 	setting = false;
-	layer->connect("value_changed", Callable(this, "_layer_changed"));
+	layer->connect("value_changed", callable_mp(this, &TextureLayeredEditor::_layer_changed));
 }
 
 TextureLayeredEditor::~TextureLayeredEditor() {
@@ -269,8 +270,8 @@ void EditorInspectorPluginLayeredTexture::parse_begin(Object *p_object) {
 	add_custom_control(editor);
 }
 
-TextureLayeredEditorPlugin::TextureLayeredEditorPlugin(EditorNode *p_node) {
+TextureLayeredEditorPlugin::TextureLayeredEditorPlugin() {
 	Ref<EditorInspectorPluginLayeredTexture> plugin;
-	plugin.instance();
+	plugin.instantiate();
 	add_inspector_plugin(plugin);
 }

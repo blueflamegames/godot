@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -35,8 +35,16 @@
 class Separator : public Control {
 	GDCLASS(Separator, Control);
 
+	struct ThemeCache {
+		int separation = 0;
+		Ref<StyleBox> separator_style;
+	} theme_cache;
+
 protected:
 	Orientation orientation = Orientation::HORIZONTAL;
+
+	virtual void _update_theme_item_cache() override;
+
 	void _notification(int p_what);
 
 public:
@@ -60,4 +68,4 @@ public:
 	HSeparator();
 };
 
-#endif
+#endif // SEPARATOR_H

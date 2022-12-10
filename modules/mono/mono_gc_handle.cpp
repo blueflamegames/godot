@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,34 +31,20 @@
 #include "mono_gc_handle.h"
 
 #include "mono_gd/gd_mono.h"
+#include "mono_gd/gd_mono_cache.h"
 
 void MonoGCHandleData::release() {
 #ifdef DEBUG_ENABLED
-	CRASH_COND(handle && GDMono::get_singleton() == nullptr);
+	CRASH_COND(handle.value && GDMono::get_singleton() == nullptr);
 #endif
 
-	if (handle && GDMono::get_singleton()->is_runtime_initialized()) {
-		GDMonoUtils::free_gchandle(handle);
-		handle = 0;
+	if (handle.value && GDMonoCache::godot_api_cache_updated &&
+			GDMono::get_singleton()->is_runtime_initialized()) {
+		free_gchandle(handle);
+		handle.value = nullptr;
 	}
 }
-
-MonoGCHandleData MonoGCHandleData::new_strong_handle(MonoObject *p_object) {
-	return MonoGCHandleData(GDMonoUtils::new_strong_gchandle(p_object), gdmono::GCHandleType::STRONG_HANDLE);
-}
-
-MonoGCHandleData MonoGCHandleData::new_strong_handle_pinned(MonoObject *p_object) {
-	return MonoGCHandleData(GDMonoUtils::new_strong_gchandle_pinned(p_object), gdmono::GCHandleType::STRONG_HANDLE);
-}
-
-MonoGCHandleData MonoGCHandleData::new_weak_handle(MonoObject *p_object) {
-	return MonoGCHandleData(GDMonoUtils::new_weak_gchandle(p_object), gdmono::GCHandleType::WEAK_HANDLE);
-}
-
-Ref<MonoGCHandleRef> MonoGCHandleRef::create_strong(MonoObject *p_object) {
-	return memnew(MonoGCHandleRef(MonoGCHandleData::new_strong_handle(p_object)));
-}
-
-Ref<MonoGCHandleRef> MonoGCHandleRef::create_weak(MonoObject *p_object) {
-	return memnew(MonoGCHandleRef(MonoGCHandleData::new_weak_handle(p_object)));
+void MonoGCHandleData::free_gchandle(GCHandleIntPtr p_gchandle) {
+	CRASH_COND(!GDMonoCache::godot_api_cache_updated);
+	GDMonoCache::managed_callbacks.GCHandleBridge_FreeGCHandle(p_gchandle);
 }

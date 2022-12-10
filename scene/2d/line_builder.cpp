@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -60,14 +60,6 @@ static SegmentIntersectionResult segment_intersection(
 	}
 
 	return SEGMENT_PARALLEL;
-}
-
-// TODO I'm pretty sure there is an even faster way to swap things
-template <typename T>
-static inline void swap(T &a, T &b) {
-	T tmp = a;
-	a = b;
-	b = tmp;
 }
 
 static float calculate_total_distance(const Vector<Vector2> &points) {
@@ -136,23 +128,23 @@ void LineBuilder::build() {
 	_interpolate_color = gradient != nullptr;
 	bool retrieve_curve = curve != nullptr;
 	bool distance_required = _interpolate_color ||
-							 retrieve_curve ||
-							 texture_mode == Line2D::LINE_TEXTURE_TILE ||
-							 texture_mode == Line2D::LINE_TEXTURE_STRETCH;
+			retrieve_curve ||
+			texture_mode == Line2D::LINE_TEXTURE_TILE ||
+			texture_mode == Line2D::LINE_TEXTURE_STRETCH;
 	if (distance_required) {
 		total_distance = calculate_total_distance(points);
 		//Adjust totalDistance.
 		// The line's outer length will be a little higher due to begin and end caps
 		if (begin_cap_mode == Line2D::LINE_CAP_BOX || begin_cap_mode == Line2D::LINE_CAP_ROUND) {
 			if (retrieve_curve) {
-				total_distance += width * curve->interpolate_baked(0.f) * 0.5f;
+				total_distance += width * curve->sample_baked(0.f) * 0.5f;
 			} else {
 				total_distance += width * 0.5f;
 			}
 		}
 		if (end_cap_mode == Line2D::LINE_CAP_BOX || end_cap_mode == Line2D::LINE_CAP_ROUND) {
 			if (retrieve_curve) {
-				total_distance += width * curve->interpolate_baked(1.f) * 0.5f;
+				total_distance += width * curve->sample_baked(1.f) * 0.5f;
 			} else {
 				total_distance += width * 0.5f;
 			}
@@ -168,7 +160,7 @@ void LineBuilder::build() {
 	float uvx1 = 0.f;
 
 	if (retrieve_curve) {
-		width_factor = curve->interpolate_baked(0.f);
+		width_factor = curve->sample_baked(0.f);
 	}
 
 	pos_up0 += u0 * hw * width_factor;
@@ -227,7 +219,7 @@ void LineBuilder::build() {
 			color1 = gradient->get_color_at_offset(current_distance1 / total_distance);
 		}
 		if (retrieve_curve) {
-			width_factor = curve->interpolate_baked(current_distance1 / total_distance);
+			width_factor = curve->sample_baked(current_distance1 / total_distance);
 		}
 
 		Vector2 inner_normal0, inner_normal1;
@@ -391,7 +383,7 @@ void LineBuilder::build() {
 		color1 = gradient->get_color(gradient->get_points_count() - 1);
 	}
 	if (retrieve_curve) {
-		width_factor = curve->interpolate_baked(1.f);
+		width_factor = curve->sample_baked(1.f);
 	}
 
 	Vector2 pos_up1 = pos1 + u0 * hw * width_factor;

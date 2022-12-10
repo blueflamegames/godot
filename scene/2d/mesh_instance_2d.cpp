@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,11 +30,15 @@
 
 #include "mesh_instance_2d.h"
 
+#include "scene/scene_string_names.h"
+
 void MeshInstance2D::_notification(int p_what) {
-	if (p_what == NOTIFICATION_DRAW) {
-		if (mesh.is_valid()) {
-			draw_mesh(mesh, texture);
-		}
+	switch (p_what) {
+		case NOTIFICATION_DRAW: {
+			if (mesh.is_valid()) {
+				draw_mesh(mesh, texture);
+			}
+		} break;
 	}
 }
 
@@ -57,7 +61,7 @@ void MeshInstance2D::_bind_methods() {
 
 void MeshInstance2D::set_mesh(const Ref<Mesh> &p_mesh) {
 	mesh = p_mesh;
-	update();
+	queue_redraw();
 }
 
 Ref<Mesh> MeshInstance2D::get_mesh() const {
@@ -69,13 +73,13 @@ void MeshInstance2D::set_texture(const Ref<Texture2D> &p_texture) {
 		return;
 	}
 	texture = p_texture;
-	update();
-	emit_signal("texture_changed");
+	queue_redraw();
+	emit_signal(SceneStringNames::get_singleton()->texture_changed);
 }
 
 void MeshInstance2D::set_normal_map(const Ref<Texture2D> &p_texture) {
 	normal_map = p_texture;
-	update();
+	queue_redraw();
 }
 
 Ref<Texture2D> MeshInstance2D::get_normal_map() const {
@@ -94,6 +98,10 @@ Rect2 MeshInstance2D::_edit_get_rect() const {
 	}
 
 	return Node2D::_edit_get_rect();
+}
+
+bool MeshInstance2D::_edit_use_rect() const {
+	return mesh.is_valid();
 }
 #endif
 

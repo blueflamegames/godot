@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -28,8 +28,8 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 
-#ifndef AUDIOEFFECTDELAY_H
-#define AUDIOEFFECTDELAY_H
+#ifndef AUDIO_EFFECT_DELAY_H
+#define AUDIO_EFFECT_DELAY_H
 
 #include "servers/audio/audio_effect.h"
 
@@ -37,6 +37,7 @@ class AudioEffectDelay;
 
 class AudioEffectDelayInstance : public AudioEffectInstance {
 	GDCLASS(AudioEffectDelayInstance, AudioEffectInstance);
+
 	friend class AudioEffectDelay;
 	Ref<AudioEffectDelay> base;
 
@@ -66,22 +67,22 @@ class AudioEffectDelay : public AudioEffect {
 		MAX_TAPS = 2
 	};
 
-	float dry;
+	float dry = 1.0f;
 
-	bool tap_1_active;
-	float tap_1_delay_ms;
-	float tap_1_level;
-	float tap_1_pan;
+	bool tap_1_active = true;
+	float tap_1_delay_ms = 250.0f;
+	float tap_1_level = -6.0f;
+	float tap_1_pan = 0.2f;
 
-	bool tap_2_active;
-	float tap_2_delay_ms;
-	float tap_2_level;
-	float tap_2_pan;
+	bool tap_2_active = true;
+	float tap_2_delay_ms = 500.0f;
+	float tap_2_level = -12.0f;
+	float tap_2_pan = -0.4f;
 
-	bool feedback_active;
-	float feedback_delay_ms;
-	float feedback_level;
-	float feedback_lowpass;
+	bool feedback_active = false;
+	float feedback_delay_ms = 340.0f;
+	float feedback_level = -6.0f;
+	float feedback_lowpass = 16000.0f;
 
 protected:
 	static void _bind_methods();
@@ -126,9 +127,9 @@ public:
 	void set_feedback_lowpass(float p_lowpass);
 	float get_feedback_lowpass() const;
 
-	Ref<AudioEffectInstance> instance() override;
+	Ref<AudioEffectInstance> instantiate() override;
 
-	AudioEffectDelay();
+	AudioEffectDelay() {}
 };
 
-#endif // AUDIOEFFECTDELAY_H
+#endif // AUDIO_EFFECT_DELAY_H

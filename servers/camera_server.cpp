@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -29,6 +29,7 @@
 /*************************************************************************/
 
 #include "camera_server.h"
+#include "core/variant/typed_array.h"
 #include "rendering_server.h"
 #include "servers/camera/camera_feed.h"
 
@@ -104,13 +105,10 @@ void CameraServer::add_feed(const Ref<CameraFeed> &p_feed) {
 	// add our feed
 	feeds.push_back(p_feed);
 
-// record for debugging
-#ifdef DEBUG_ENABLED
-	print_line("Registered camera " + p_feed->get_name() + " with id " + itos(p_feed->get_id()) + " position " + itos(p_feed->get_position()) + " at index " + itos(feeds.size() - 1));
-#endif
+	print_verbose("CameraServer: Registered camera " + p_feed->get_name() + " with ID " + itos(p_feed->get_id()) + " and position " + itos(p_feed->get_position()) + " at index " + itos(feeds.size() - 1));
 
 	// let whomever is interested know
-	emit_signal("camera_feed_added", p_feed->get_id());
+	emit_signal(SNAME("camera_feed_added"), p_feed->get_id());
 };
 
 void CameraServer::remove_feed(const Ref<CameraFeed> &p_feed) {
@@ -118,16 +116,13 @@ void CameraServer::remove_feed(const Ref<CameraFeed> &p_feed) {
 		if (feeds[i] == p_feed) {
 			int feed_id = p_feed->get_id();
 
-// record for debugging
-#ifdef DEBUG_ENABLED
-			print_line("Removed camera " + p_feed->get_name() + " with id " + itos(feed_id) + " position " + itos(p_feed->get_position()));
-#endif
+			print_verbose("CameraServer: Removed camera " + p_feed->get_name() + " with ID " + itos(feed_id) + " and position " + itos(p_feed->get_position()));
 
 			// remove it from our array, if this results in our feed being unreferenced it will be destroyed
-			feeds.remove(i);
+			feeds.remove_at(i);
 
 			// let whomever is interested know
-			emit_signal("camera_feed_removed", feed_id);
+			emit_signal(SNAME("camera_feed_removed"), feed_id);
 			return;
 		};
 	};
@@ -143,8 +138,8 @@ int CameraServer::get_feed_count() {
 	return feeds.size();
 };
 
-Array CameraServer::get_feeds() {
-	Array return_feeds;
+TypedArray<CameraFeed> CameraServer::get_feeds() {
+	TypedArray<CameraFeed> return_feeds;
 	int cc = get_feed_count();
 	return_feeds.resize(cc);
 

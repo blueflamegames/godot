@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,24 +30,35 @@
 
 #include "vector3i.h"
 
-void Vector3i::set_axis(int p_axis, int32_t p_value) {
-	ERR_FAIL_INDEX(p_axis, 3);
-	coord[p_axis] = p_value;
+#include "core/math/vector3.h"
+#include "core/string/ustring.h"
+
+Vector3i::Axis Vector3i::min_axis_index() const {
+	return x < y ? (x < z ? Vector3i::AXIS_X : Vector3i::AXIS_Z) : (y < z ? Vector3i::AXIS_Y : Vector3i::AXIS_Z);
 }
 
-int32_t Vector3i::get_axis(int p_axis) const {
-	ERR_FAIL_INDEX_V(p_axis, 3, 0);
-	return operator[](p_axis);
+Vector3i::Axis Vector3i::max_axis_index() const {
+	return x < y ? (y < z ? Vector3i::AXIS_Z : Vector3i::AXIS_Y) : (x < z ? Vector3i::AXIS_Z : Vector3i::AXIS_X);
 }
 
-int Vector3i::min_axis() const {
-	return x < y ? (x < z ? 0 : 2) : (y < z ? 1 : 2);
+Vector3i Vector3i::clamp(const Vector3i &p_min, const Vector3i &p_max) const {
+	return Vector3i(
+			CLAMP(x, p_min.x, p_max.x),
+			CLAMP(y, p_min.y, p_max.y),
+			CLAMP(z, p_min.z, p_max.z));
 }
 
-int Vector3i::max_axis() const {
-	return x < y ? (y < z ? 2 : 1) : (x < z ? 2 : 0);
+Vector3i Vector3i::snapped(const Vector3i &p_step) const {
+	return Vector3i(
+			Math::snapped(x, p_step.x),
+			Math::snapped(y, p_step.y),
+			Math::snapped(z, p_step.z));
 }
 
 Vector3i::operator String() const {
-	return (itos(x) + ", " + itos(y) + ", " + itos(z));
+	return "(" + itos(x) + ", " + itos(y) + ", " + itos(z) + ")";
+}
+
+Vector3i::operator Vector3() const {
+	return Vector3(x, y, z);
 }

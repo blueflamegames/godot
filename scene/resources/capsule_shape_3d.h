@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -28,15 +28,15 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 
-#ifndef CAPSULE_SHAPE_H
-#define CAPSULE_SHAPE_H
+#ifndef CAPSULE_SHAPE_3D_H
+#define CAPSULE_SHAPE_3D_H
 
 #include "scene/resources/shape_3d.h"
 
 class CapsuleShape3D : public Shape3D {
 	GDCLASS(CapsuleShape3D, Shape3D);
-	float radius = 1.0;
-	float height = 1.0;
+	float radius = 0.5;
+	float height = 2.0;
 
 protected:
 	static void _bind_methods();
@@ -55,4 +55,4 @@ public:
 	CapsuleShape3D();
 };
 
-#endif // CAPSULE_SHAPE_H
+#endif // CAPSULE_SHAPE_3D_H

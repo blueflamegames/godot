@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,10 +31,14 @@
 #ifndef SCRIPT_TEXT_EDITOR_H
 #define SCRIPT_TEXT_EDITOR_H
 
+#include "script_editor_plugin.h"
+
+#include "editor/code_editor.h"
 #include "scene/gui/color_picker.h"
 #include "scene/gui/dialogs.h"
 #include "scene/gui/tree.h"
-#include "script_editor_plugin.h"
+
+class RichTextLabel;
 
 class ConnectionInfoDialog : public AcceptDialog {
 	GDCLASS(ConnectionInfoDialog, AcceptDialog);
@@ -55,12 +59,16 @@ class ScriptTextEditor : public ScriptEditorBase {
 
 	CodeTextEditor *code_editor = nullptr;
 	RichTextLabel *warnings_panel = nullptr;
+	RichTextLabel *errors_panel = nullptr;
 
 	Ref<Script> script;
 	bool script_is_valid = false;
 	bool editor_enabled = false;
 
 	Vector<String> functions;
+	List<ScriptLanguage::Warning> warnings;
+	List<ScriptLanguage::ScriptError> errors;
+	HashSet<int> safe_lines;
 
 	List<Connection> missing_connections;
 
@@ -75,7 +83,6 @@ class ScriptTextEditor : public ScriptEditorBase {
 	PopupMenu *breakpoints_menu = nullptr;
 	PopupMenu *highlighter_menu = nullptr;
 	PopupMenu *context_menu = nullptr;
-	PopupMenu *convert_case = nullptr;
 
 	GotoLineDialog *goto_line_dialog = nullptr;
 	ScriptEditorQuickOpen *quick_open = nullptr;
@@ -88,6 +95,8 @@ class ScriptTextEditor : public ScriptEditorBase {
 	int line_number_gutter = -1;
 	Color default_line_number_color = Color(1, 1, 1);
 	Color safe_line_number_color = Color(1, 1, 1);
+
+	Color marked_line_color = Color(1, 1, 1);
 
 	PopupPanel *color_panel = nullptr;
 	ColorPicker *color_picker = nullptr;
@@ -111,10 +120,10 @@ class ScriptTextEditor : public ScriptEditorBase {
 		EDIT_TOGGLE_COMMENT,
 		EDIT_MOVE_LINE_UP,
 		EDIT_MOVE_LINE_DOWN,
-		EDIT_INDENT_RIGHT,
-		EDIT_INDENT_LEFT,
+		EDIT_INDENT,
+		EDIT_UNINDENT,
 		EDIT_DELETE_LINE,
-		EDIT_CLONE_DOWN,
+		EDIT_DUPLICATE_SELECTION,
 		EDIT_PICK_COLOR,
 		EDIT_TO_UPPERCASE,
 		EDIT_TO_LOWERCASE,
@@ -151,21 +160,25 @@ protected:
 	void _breakpoint_toggled(int p_row);
 
 	void _validate_script(); // No longer virtual.
+	void _update_warnings();
+	void _update_errors();
 	void _update_bookmark_list();
 	void _bookmark_item_pressed(int p_idx);
 
-	static void _code_complete_scripts(void *p_ud, const String &p_code, List<ScriptCodeCompletionOption> *r_options, bool &r_force);
-	void _code_complete_script(const String &p_code, List<ScriptCodeCompletionOption> *r_options, bool &r_force);
+	static void _code_complete_scripts(void *p_ud, const String &p_code, List<ScriptLanguage::CodeCompletionOption> *r_options, bool &r_force);
+	void _code_complete_script(const String &p_code, List<ScriptLanguage::CodeCompletionOption> *r_options, bool &r_force);
 
 	void _load_theme_settings();
 	void _set_theme_for_script();
+	void _show_errors_panel(bool p_show);
 	void _show_warnings_panel(bool p_show);
+	void _error_clicked(Variant p_line);
 	void _warning_clicked(Variant p_line);
 
 	void _notification(int p_what);
 	static void _bind_methods();
 
-	Map<String, Ref<EditorSyntaxHighlighter>> highlighters;
+	HashMap<String, Ref<EditorSyntaxHighlighter>> highlighters;
 	void _change_syntax_highlighter(int p_idx);
 
 	void _edit_option(int p_op);
@@ -173,6 +186,7 @@ protected:
 	void _make_context_menu(bool p_selection, bool p_color, bool p_foldable, bool p_open_docs, bool p_goto_definition, Vector2 p_pos);
 	void _text_edit_gui_input(const Ref<InputEvent> &ev);
 	void _color_changed(const Color &p_color);
+	void _prepare_edit_menu();
 
 	void _goto_line(int p_line) { goto_line(p_line); }
 	void _lookup_symbol(const String &p_symbol, int p_row, int p_column);
@@ -191,12 +205,12 @@ public:
 
 	virtual void add_syntax_highlighter(Ref<EditorSyntaxHighlighter> p_highlighter) override;
 	virtual void set_syntax_highlighter(Ref<EditorSyntaxHighlighter> p_highlighter) override;
-	void update_toggle_scripts_button();
+	void update_toggle_scripts_button() override;
 
 	virtual void apply_code() override;
-	virtual RES get_edited_resource() const override;
-	virtual void set_edited_resource(const RES &p_res) override;
-	virtual void enable_editor() override;
+	virtual Ref<Resource> get_edited_resource() const override;
+	virtual void set_edited_resource(const Ref<Resource> &p_res) override;
+	virtual void enable_editor(Control *p_shortcut_context = nullptr) override;
 	virtual Vector<String> get_functions() override;
 	virtual void reload_text() override;
 	virtual String get_name() override;
@@ -204,6 +218,7 @@ public:
 	virtual bool is_unsaved() override;
 	virtual Variant get_edit_state() override;
 	virtual void set_edit_state(const Variant &p_state) override;
+	virtual Variant get_navigation_state() override;
 	virtual void ensure_focus() override;
 	virtual void trim_trailing_whitespace() override;
 	virtual void insert_final_newline() override;
@@ -218,25 +233,78 @@ public:
 	virtual void clear_executing_line() override;
 
 	virtual void reload(bool p_soft) override;
-	virtual Array get_breakpoints() override;
+	virtual PackedInt32Array get_breakpoints() override;
+	virtual void set_breakpoint(int p_line, bool p_enabled) override;
+	virtual void clear_breakpoints() override;
 
 	virtual void add_callback(const String &p_function, PackedStringArray p_args) override;
 	virtual void update_settings() override;
 
 	virtual bool show_members_overview() override;
 
-	virtual void set_tooltip_request_func(String p_method, Object *p_obj) override;
+	virtual void set_tooltip_request_func(const Callable &p_toolip_callback) override;
 
 	virtual void set_debugger_active(bool p_active) override;
 
 	Control *get_edit_menu() override;
 	virtual void clear_edit_menu() override;
+	virtual void set_find_replace_bar(FindReplaceBar *p_bar) override;
+
 	static void register_editor();
+
+	virtual Control *get_base_editor() const override;
 
 	virtual void validate() override;
 
 	ScriptTextEditor();
 	~ScriptTextEditor();
+};
+
+const int KIND_COUNT = 10;
+// The order in which to sort code completion options.
+const ScriptLanguage::CodeCompletionKind KIND_SORT_ORDER[KIND_COUNT] = {
+	ScriptLanguage::CODE_COMPLETION_KIND_VARIABLE,
+	ScriptLanguage::CODE_COMPLETION_KIND_MEMBER,
+	ScriptLanguage::CODE_COMPLETION_KIND_FUNCTION,
+	ScriptLanguage::CODE_COMPLETION_KIND_ENUM,
+	ScriptLanguage::CODE_COMPLETION_KIND_SIGNAL,
+	ScriptLanguage::CODE_COMPLETION_KIND_CONSTANT,
+	ScriptLanguage::CODE_COMPLETION_KIND_CLASS,
+	ScriptLanguage::CODE_COMPLETION_KIND_NODE_PATH,
+	ScriptLanguage::CODE_COMPLETION_KIND_FILE_PATH,
+	ScriptLanguage::CODE_COMPLETION_KIND_PLAIN_TEXT,
+};
+
+// The custom comparer which will sort completion options.
+struct CodeCompletionOptionCompare {
+	_FORCE_INLINE_ bool operator()(const ScriptLanguage::CodeCompletionOption &l, const ScriptLanguage::CodeCompletionOption &r) const {
+		if (l.location == r.location) {
+			// If locations are same, sort on kind
+			if (l.kind == r.kind) {
+				// If kinds are same, sort alphanumeric
+				return l.display < r.display;
+			}
+
+			// Sort kinds based on the const sorting array defined above. Lower index = higher priority.
+			int l_index = -1;
+			int r_index = -1;
+			for (int i = 0; i < KIND_COUNT; i++) {
+				const ScriptLanguage::CodeCompletionKind kind = KIND_SORT_ORDER[i];
+				l_index = kind == l.kind ? i : l_index;
+				r_index = kind == r.kind ? i : r_index;
+
+				if (l_index != -1 && r_index != -1) {
+					return l_index < r_index;
+				}
+			}
+
+			// This return should never be hit unless something goes wrong.
+			// l and r should always have a Kind which is in the sort order array.
+			return l.display < r.display;
+		}
+
+		return l.location < r.location;
+	}
 };
 
 #endif // SCRIPT_TEXT_EDITOR_H

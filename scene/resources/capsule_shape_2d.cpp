@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -38,11 +38,11 @@ Vector<Vector2> CapsuleShape2D::_get_points() const {
 	Vector<Vector2> points;
 	const real_t turn_step = Math_TAU / 24.0;
 	for (int i = 0; i < 24; i++) {
-		Vector2 ofs = Vector2(0, (i > 6 && i <= 18) ? -get_height() * 0.5 : get_height() * 0.5);
+		Vector2 ofs = Vector2(0, (i > 6 && i <= 18) ? -height * 0.5 + radius : height * 0.5 - radius);
 
-		points.push_back(Vector2(Math::sin(i * turn_step), Math::cos(i * turn_step)) * get_radius() + ofs);
+		points.push_back(Vector2(Math::sin(i * turn_step), Math::cos(i * turn_step)) * radius + ofs);
 		if (i == 6 || i == 18) {
-			points.push_back(Vector2(Math::sin(i * turn_step), Math::cos(i * turn_step)) * get_radius() - ofs);
+			points.push_back(Vector2(Math::sin(i * turn_step), Math::cos(i * turn_step)) * radius - ofs);
 		}
 	}
 
@@ -59,7 +59,11 @@ void CapsuleShape2D::_update_shape() {
 }
 
 void CapsuleShape2D::set_radius(real_t p_radius) {
+	ERR_FAIL_COND_MSG(p_radius < 0, "CapsuleShape2D radius cannot be negative.");
 	radius = p_radius;
+	if (radius > height * 0.5) {
+		height = radius * 2.0;
+	}
 	_update_shape();
 }
 
@@ -68,11 +72,11 @@ real_t CapsuleShape2D::get_radius() const {
 }
 
 void CapsuleShape2D::set_height(real_t p_height) {
+	ERR_FAIL_COND_MSG(p_height < 0, "CapsuleShape2D height cannot be negative.");
 	height = p_height;
-	if (height < 0) {
-		height = 0;
+	if (radius > height * 0.5) {
+		radius = height * 0.5;
 	}
-
 	_update_shape();
 }
 
@@ -82,26 +86,20 @@ real_t CapsuleShape2D::get_height() const {
 
 void CapsuleShape2D::draw(const RID &p_to_rid, const Color &p_color) {
 	Vector<Vector2> points = _get_points();
-	Vector<Color> col;
-	col.push_back(p_color);
+	Vector<Color> col = { p_color };
 	RenderingServer::get_singleton()->canvas_item_add_polygon(p_to_rid, points, col);
 	if (is_collision_outline_enabled()) {
+		points.push_back(points[0]);
 		RenderingServer::get_singleton()->canvas_item_add_polyline(p_to_rid, points, col);
-		// Draw the last segment as it's not drawn by `canvas_item_add_polyline()`.
-		RenderingServer::get_singleton()->canvas_item_add_line(p_to_rid, points[points.size() - 1], points[0], p_color);
 	}
 }
 
 Rect2 CapsuleShape2D::get_rect() const {
-	Vector2 he = Point2(get_radius(), get_radius() + get_height() * 0.5);
-	Rect2 rect;
-	rect.position = -he;
-	rect.size = he * 2.0;
-	return rect;
+	return Rect2(0, 0, radius, height);
 }
 
 real_t CapsuleShape2D::get_enclosing_radius() const {
-	return radius + height * 0.5;
+	return height * 0.5;
 }
 
 void CapsuleShape2D::_bind_methods() {
@@ -111,8 +109,10 @@ void CapsuleShape2D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_height", "height"), &CapsuleShape2D::set_height);
 	ClassDB::bind_method(D_METHOD("get_height"), &CapsuleShape2D::get_height);
 
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "radius"), "set_radius", "get_radius");
-	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "height"), "set_height", "get_height");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "radius", PROPERTY_HINT_RANGE, "0.01,1024,0.01,or_greater,suffix:px"), "set_radius", "get_radius");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "height", PROPERTY_HINT_RANGE, "0.01,1024,0.01,or_greater,suffix:px"), "set_height", "get_height");
+	ADD_LINKED_PROPERTY("radius", "height");
+	ADD_LINKED_PROPERTY("height", "radius");
 }
 
 CapsuleShape2D::CapsuleShape2D() :

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -28,9 +28,10 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 
-#ifndef GODOT_JAVA_GODOT_VIEW_WRAPPER_H
-#define GODOT_JAVA_GODOT_VIEW_WRAPPER_H
+#ifndef JAVA_GODOT_VIEW_WRAPPER_H
+#define JAVA_GODOT_VIEW_WRAPPER_H
 
+#include "core/math/vector2.h"
 #include <android/log.h>
 #include <jni.h>
 
@@ -46,13 +47,22 @@ private:
 	jmethodID _request_pointer_capture = 0;
 	jmethodID _release_pointer_capture = 0;
 
+	jmethodID _configure_pointer_icon = 0;
+	jmethodID _set_pointer_icon = 0;
+
 public:
 	GodotJavaViewWrapper(jobject godot_view);
+
+	bool can_update_pointer_icon() const;
+	bool can_capture_pointer() const;
 
 	void request_pointer_capture();
 	void release_pointer_capture();
 
+	void configure_pointer_icon(int pointer_type, const String &image_path, const Vector2 &p_hotspot);
+	void set_pointer_icon(int pointer_type);
+
 	~GodotJavaViewWrapper();
 };
 
-#endif //GODOT_JAVA_GODOT_VIEW_WRAPPER_H
+#endif // JAVA_GODOT_VIEW_WRAPPER_H

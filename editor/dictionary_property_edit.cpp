@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -29,7 +29,8 @@
 /*************************************************************************/
 
 #include "dictionary_property_edit.h"
-#include "editor_node.h"
+#include "editor/editor_node.h"
+#include "editor/editor_undo_redo_manager.h"
 
 void DictionaryPropertyEdit::_notif_change() {
 	notify_property_list_changed();
@@ -118,7 +119,7 @@ bool DictionaryPropertyEdit::_set(const StringName &p_name, const Variant &p_val
 		int index = pn.substr(0, slash).to_int();
 		if (type == "key" && index < keys.size()) {
 			const Variant &key = keys[index];
-			UndoRedo *ur = EditorNode::get_undo_redo();
+			Ref<EditorUndoRedoManager> &ur = EditorNode::get_undo_redo();
 
 			ur->create_action(TTR("Change Dictionary Key"));
 			ur->add_do_method(this, "_set_key", key, p_value);
@@ -130,7 +131,7 @@ bool DictionaryPropertyEdit::_set(const StringName &p_name, const Variant &p_val
 			const Variant &key = keys[index];
 			if (dict.has(key)) {
 				Variant value = dict[key];
-				UndoRedo *ur = EditorNode::get_undo_redo();
+				Ref<EditorUndoRedoManager> &ur = EditorNode::get_undo_redo();
 
 				ur->create_action(TTR("Change Dictionary Value"));
 				ur->add_do_method(this, "_set_value", key, p_value);

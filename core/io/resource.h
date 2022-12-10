@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,10 +31,13 @@
 #ifndef RESOURCE_H
 #define RESOURCE_H
 
+#include "core/io/resource_uid.h"
 #include "core/object/class_db.h"
-#include "core/object/reference.h"
+#include "core/object/ref_counted.h"
 #include "core/templates/safe_refcount.h"
 #include "core/templates/self_list.h"
+
+class Node;
 
 #define RES_BASE_EXTENSION(m_ext)                                                                                   \
 public:                                                                                                             \
@@ -43,25 +46,22 @@ public:                                                                         
                                                                                                                     \
 private:
 
-class Resource : public Reference {
-	GDCLASS(Resource, Reference);
-	OBJ_CATEGORY("Resources");
+class Resource : public RefCounted {
+	GDCLASS(Resource, RefCounted);
 
 public:
 	static void register_custom_data_to_otdb() { ClassDB::add_resource_base_extension("res", get_class_static()); }
 	virtual String get_base_extension() const { return "res"; }
 
 private:
-	Set<ObjectID> owners;
+	HashSet<ObjectID> owners;
 
 	friend class ResBase;
 	friend class ResourceCache;
 
 	String name;
 	String path_cache;
-	int subindex = 0;
-
-	virtual bool _use_builtin_script() const { return true; }
+	String scene_unique_id;
 
 #ifdef TOOLS_ENABLED
 	uint64_t last_modified_time = 0;
@@ -88,7 +88,9 @@ protected:
 
 public:
 	static Node *(*_get_local_scene_func)(); //used by editor
+	static void (*_update_configuration_warning)(); //used by editor
 
+	void update_configuration_warning();
 	virtual bool editor_can_reload_from_file();
 	virtual void reset_state(); //for resources that use variable amount of properties, either via _validate_property or _get_property_list, this function needs to be implemented to correctly clear state
 	virtual Error copy_from(const Ref<Resource> &p_resource);
@@ -102,13 +104,15 @@ public:
 
 	virtual void set_path(const String &p_path, bool p_take_over = false);
 	String get_path() const;
+	_FORCE_INLINE_ bool is_built_in() const { return path_cache.is_empty() || path_cache.contains("::") || path_cache.begins_with("local://"); }
 
-	void set_subindex(int p_sub_index);
-	int get_subindex() const;
+	static String generate_scene_unique_id();
+	void set_scene_unique_id(const String &p_id);
+	String get_scene_unique_id() const;
 
 	virtual Ref<Resource> duplicate(bool p_subresources = false) const;
-	Ref<Resource> duplicate_for_local_scene(Node *p_for_scene, Map<Ref<Resource>, Ref<Resource>> &remap_cache);
-	void configure_for_local_scene(Node *p_for_scene, Map<Ref<Resource>, Ref<Resource>> &remap_cache);
+	Ref<Resource> duplicate_for_local_scene(Node *p_for_scene, HashMap<Ref<Resource>, Ref<Resource>> &remap_cache);
+	void configure_for_local_scene(Node *p_for_scene, HashMap<Ref<Resource>, Ref<Resource>> &remap_cache);
 
 	void set_local_to_scene(bool p_enable);
 	bool is_local_to_scene() const;
@@ -138,23 +142,21 @@ public:
 
 #ifdef TOOLS_ENABLED
 	//helps keep IDs same number when loading/saving scenes. -1 clears ID and it Returns -1 when no id stored
-	void set_id_for_path(const String &p_path, int p_id);
-	int get_id_for_path(const String &p_path) const;
+	void set_id_for_path(const String &p_path, const String &p_id);
+	String get_id_for_path(const String &p_path) const;
 #endif
 
 	Resource();
 	~Resource();
 };
 
-typedef Ref<Resource> RES;
-
 class ResourceCache {
 	friend class Resource;
 	friend class ResourceLoader; //need the lock
-	static RWLock lock;
+	static Mutex lock;
 	static HashMap<String, Resource *> resources;
 #ifdef TOOLS_ENABLED
-	static HashMap<String, HashMap<String, int>> resource_path_cache; // each tscn has a set of resource paths and IDs
+	static HashMap<String, HashMap<String, String>> resource_path_cache; // Each tscn has a set of resource paths and IDs.
 	static RWLock path_cache_lock;
 #endif // TOOLS_ENABLED
 	friend void unregister_core_types();
@@ -164,8 +166,7 @@ class ResourceCache {
 public:
 	static void reload_externals();
 	static bool has(const String &p_path);
-	static Resource *get(const String &p_path);
-	static void dump(const char *p_file = nullptr, bool p_short = false);
+	static Ref<Resource> get_ref(const String &p_path);
 	static void get_cached_resources(List<Ref<Resource>> *p_resources);
 	static int get_cached_resource_count();
 };

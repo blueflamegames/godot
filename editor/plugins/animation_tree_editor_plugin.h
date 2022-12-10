@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,14 +31,12 @@
 #ifndef ANIMATION_TREE_EDITOR_PLUGIN_H
 #define ANIMATION_TREE_EDITOR_PLUGIN_H
 
-#include "editor/editor_node.h"
 #include "editor/editor_plugin.h"
-#include "editor/property_editor.h"
 #include "scene/animation/animation_tree.h"
 #include "scene/gui/button.h"
 #include "scene/gui/graph_edit.h"
-#include "scene/gui/popup.h"
-#include "scene/gui/tree.h"
+
+class EditorFileDialog;
 
 class AnimationTreeNodeEditorPlugin : public VBoxContainer {
 	GDCLASS(AnimationTreeNodeEditorPlugin, VBoxContainer);
@@ -51,11 +49,11 @@ public:
 class AnimationTreeEditor : public VBoxContainer {
 	GDCLASS(AnimationTreeEditor, VBoxContainer);
 
-	ScrollContainer *path_edit;
-	HBoxContainer *path_hb;
+	ScrollContainer *path_edit = nullptr;
+	HBoxContainer *path_hb = nullptr;
 
-	AnimationTree *tree;
-	MarginContainer *editor_base;
+	AnimationTree *tree = nullptr;
+	MarginContainer *editor_base = nullptr;
 
 	Vector<String> button_path;
 	Vector<String> edited_path;
@@ -65,17 +63,19 @@ class AnimationTreeEditor : public VBoxContainer {
 	ObjectID current_root;
 
 	void _path_button_pressed(int p_path);
+	void _animation_list_changed();
 
 	static Vector<String> get_animation_list();
 
 protected:
 	void _notification(int p_what);
+	void _node_removed(Node *p_node);
 	static void _bind_methods();
 
 	static AnimationTreeEditor *singleton;
 
 public:
-	AnimationTree *get_tree() { return tree; }
+	AnimationTree *get_animation_tree() { return tree; }
 	void add_plugin(AnimationTreeNodeEditorPlugin *p_editor);
 	void remove_plugin(AnimationTreeNodeEditorPlugin *p_editor);
 
@@ -95,9 +95,8 @@ public:
 class AnimationTreeEditorPlugin : public EditorPlugin {
 	GDCLASS(AnimationTreeEditorPlugin, EditorPlugin);
 
-	AnimationTreeEditor *anim_tree_editor;
-	EditorNode *editor;
-	Button *button;
+	AnimationTreeEditor *anim_tree_editor = nullptr;
+	Button *button = nullptr;
 
 public:
 	virtual String get_name() const override { return "AnimationTree"; }
@@ -106,7 +105,7 @@ public:
 	virtual bool handles(Object *p_object) const override;
 	virtual void make_visible(bool p_visible) override;
 
-	AnimationTreeEditorPlugin(EditorNode *p_node);
+	AnimationTreeEditorPlugin();
 	~AnimationTreeEditorPlugin();
 };
 

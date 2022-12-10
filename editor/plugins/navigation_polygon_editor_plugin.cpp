@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -29,6 +29,9 @@
 /*************************************************************************/
 
 #include "navigation_polygon_editor_plugin.h"
+
+#include "editor/editor_node.h"
+#include "editor/editor_undo_redo_manager.h"
 
 Ref<NavigationPolygon> NavigationPolygonEditor::_ensure_navpoly() const {
 	Ref<NavigationPolygon> navpoly = node->get_navigation_polygon();
@@ -73,6 +76,7 @@ void NavigationPolygonEditor::_set_polygon(int p_idx, const Variant &p_polygon) 
 
 void NavigationPolygonEditor::_action_add_polygon(const Variant &p_polygon) {
 	Ref<NavigationPolygon> navpoly = _ensure_navpoly();
+	Ref<EditorUndoRedoManager> &undo_redo = EditorNode::get_undo_redo();
 	undo_redo->add_do_method(navpoly.ptr(), "add_outline", p_polygon);
 	undo_redo->add_undo_method(navpoly.ptr(), "remove_outline", navpoly->get_outline_count());
 	undo_redo->add_do_method(navpoly.ptr(), "make_polygons_from_outlines");
@@ -81,6 +85,7 @@ void NavigationPolygonEditor::_action_add_polygon(const Variant &p_polygon) {
 
 void NavigationPolygonEditor::_action_remove_polygon(int p_idx) {
 	Ref<NavigationPolygon> navpoly = _ensure_navpoly();
+	Ref<EditorUndoRedoManager> &undo_redo = EditorNode::get_undo_redo();
 	undo_redo->add_do_method(navpoly.ptr(), "remove_outline", p_idx);
 	undo_redo->add_undo_method(navpoly.ptr(), "add_outline_at_index", navpoly->get_outline(p_idx), p_idx);
 	undo_redo->add_do_method(navpoly.ptr(), "make_polygons_from_outlines");
@@ -89,6 +94,7 @@ void NavigationPolygonEditor::_action_remove_polygon(int p_idx) {
 
 void NavigationPolygonEditor::_action_set_polygon(int p_idx, const Variant &p_previous, const Variant &p_polygon) {
 	Ref<NavigationPolygon> navpoly = _ensure_navpoly();
+	Ref<EditorUndoRedoManager> &undo_redo = EditorNode::get_undo_redo();
 	undo_redo->add_do_method(navpoly.ptr(), "set_outline", p_idx, p_polygon);
 	undo_redo->add_undo_method(navpoly.ptr(), "set_outline", p_idx, p_previous);
 	undo_redo->add_do_method(navpoly.ptr(), "make_polygons_from_outlines");
@@ -104,19 +110,17 @@ void NavigationPolygonEditor::_create_resource() {
 		return;
 	}
 
+	Ref<EditorUndoRedoManager> &undo_redo = EditorNode::get_undo_redo();
 	undo_redo->create_action(TTR("Create Navigation Polygon"));
 	undo_redo->add_do_method(node, "set_navigation_polygon", Ref<NavigationPolygon>(memnew(NavigationPolygon)));
-	undo_redo->add_undo_method(node, "set_navigation_polygon", Variant(REF()));
+	undo_redo->add_undo_method(node, "set_navigation_polygon", Variant(Ref<RefCounted>()));
 	undo_redo->commit_action();
 
 	_menu_option(MODE_CREATE);
 }
 
-NavigationPolygonEditor::NavigationPolygonEditor(EditorNode *p_editor) :
-		AbstractPolygon2DEditor(p_editor) {
-	node = nullptr;
-}
+NavigationPolygonEditor::NavigationPolygonEditor() {}
 
-NavigationPolygonEditorPlugin::NavigationPolygonEditorPlugin(EditorNode *p_node) :
-		AbstractPolygon2DEditorPlugin(p_node, memnew(NavigationPolygonEditor(p_node)), "NavigationRegion2D") {
+NavigationPolygonEditorPlugin::NavigationPolygonEditorPlugin() :
+		AbstractPolygon2DEditorPlugin(memnew(NavigationPolygonEditor), "NavigationRegion2D") {
 }

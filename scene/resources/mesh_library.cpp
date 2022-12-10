@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -30,11 +30,13 @@
 
 #include "mesh_library.h"
 
+#include "box_shape_3d.h"
+
 bool MeshLibrary::_set(const StringName &p_name, const Variant &p_value) {
-	String name = p_name;
-	if (name.begins_with("item/")) {
-		int idx = name.get_slicec('/', 1).to_int();
-		String what = name.get_slicec('/', 2);
+	String prop_name = p_name;
+	if (prop_name.begins_with("item/")) {
+		int idx = prop_name.get_slicec('/', 1).to_int();
+		String what = prop_name.get_slicec('/', 2);
 		if (!item_map.has(idx)) {
 			create_item(idx);
 		}
@@ -43,6 +45,8 @@ bool MeshLibrary::_set(const StringName &p_name, const Variant &p_value) {
 			set_item_name(idx, p_value);
 		} else if (what == "mesh") {
 			set_item_mesh(idx, p_value);
+		} else if (what == "mesh_transform") {
+			set_item_mesh_transform(idx, p_value);
 		} else if (what == "shape") {
 			Vector<ShapeData> shapes;
 			ShapeData sd;
@@ -68,15 +72,17 @@ bool MeshLibrary::_set(const StringName &p_name, const Variant &p_value) {
 }
 
 bool MeshLibrary::_get(const StringName &p_name, Variant &r_ret) const {
-	String name = p_name;
-	int idx = name.get_slicec('/', 1).to_int();
+	String prop_name = p_name;
+	int idx = prop_name.get_slicec('/', 1).to_int();
 	ERR_FAIL_COND_V(!item_map.has(idx), false);
-	String what = name.get_slicec('/', 2);
+	String what = prop_name.get_slicec('/', 2);
 
 	if (what == "name") {
 		r_ret = get_item_name(idx);
 	} else if (what == "mesh") {
 		r_ret = get_item_mesh(idx);
+	} else if (what == "mesh_transform") {
+		r_ret = get_item_mesh_transform(idx);
 	} else if (what == "shapes") {
 		r_ret = _get_item_shapes(idx);
 	} else if (what == "navmesh") {
@@ -93,15 +99,15 @@ bool MeshLibrary::_get(const StringName &p_name, Variant &r_ret) const {
 }
 
 void MeshLibrary::_get_property_list(List<PropertyInfo> *p_list) const {
-	for (Map<int, Item>::Element *E = item_map.front(); E; E = E->next()) {
-		String name = "item/" + itos(E->key()) + "/";
-		p_list->push_back(PropertyInfo(Variant::STRING, name + "name"));
-		p_list->push_back(PropertyInfo(Variant::OBJECT, name + "mesh", PROPERTY_HINT_RESOURCE_TYPE, "Mesh"));
-		p_list->push_back(PropertyInfo(Variant::TRANSFORM, name + "mesh_transform"));
-		p_list->push_back(PropertyInfo(Variant::ARRAY, name + "shapes"));
-		p_list->push_back(PropertyInfo(Variant::OBJECT, name + "navmesh", PROPERTY_HINT_RESOURCE_TYPE, "NavigationMesh"));
-		p_list->push_back(PropertyInfo(Variant::TRANSFORM, name + "navmesh_transform"));
-		p_list->push_back(PropertyInfo(Variant::OBJECT, name + "preview", PROPERTY_HINT_RESOURCE_TYPE, "Texture2D", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_EDITOR_HELPER));
+	for (const KeyValue<int, Item> &E : item_map) {
+		String prop_name = vformat("%s/%d/", PNAME("item"), E.key);
+		p_list->push_back(PropertyInfo(Variant::STRING, prop_name + PNAME("name")));
+		p_list->push_back(PropertyInfo(Variant::OBJECT, prop_name + PNAME("mesh"), PROPERTY_HINT_RESOURCE_TYPE, "Mesh"));
+		p_list->push_back(PropertyInfo(Variant::TRANSFORM3D, prop_name + PNAME("mesh_transform"), PROPERTY_HINT_NONE, "suffix:m"));
+		p_list->push_back(PropertyInfo(Variant::ARRAY, prop_name + PNAME("shapes")));
+		p_list->push_back(PropertyInfo(Variant::OBJECT, prop_name + PNAME("navmesh"), PROPERTY_HINT_RESOURCE_TYPE, "NavigationMesh"));
+		p_list->push_back(PropertyInfo(Variant::TRANSFORM3D, prop_name + PNAME("navmesh_transform"), PROPERTY_HINT_NONE, "suffix:m"));
+		p_list->push_back(PropertyInfo(Variant::OBJECT, prop_name + PNAME("preview"), PROPERTY_HINT_RESOURCE_TYPE, "Texture2D", PROPERTY_USAGE_DEFAULT));
 	}
 }
 
@@ -127,6 +133,14 @@ void MeshLibrary::set_item_mesh(int p_item, const Ref<Mesh> &p_mesh) {
 	notify_property_list_changed();
 }
 
+void MeshLibrary::set_item_mesh_transform(int p_item, const Transform3D &p_transform) {
+	ERR_FAIL_COND_MSG(!item_map.has(p_item), "Requested for nonexistent MeshLibrary item '" + itos(p_item) + "'.");
+	item_map[p_item].mesh_transform = p_transform;
+	notify_change_to_owners();
+	emit_changed();
+	notify_property_list_changed();
+}
+
 void MeshLibrary::set_item_shapes(int p_item, const Vector<ShapeData> &p_shapes) {
 	ERR_FAIL_COND_MSG(!item_map.has(p_item), "Requested for nonexistent MeshLibrary item '" + itos(p_item) + "'.");
 	item_map[p_item].shapes = p_shapes;
@@ -145,7 +159,7 @@ void MeshLibrary::set_item_navmesh(int p_item, const Ref<NavigationMesh> &p_navm
 	notify_property_list_changed();
 }
 
-void MeshLibrary::set_item_navmesh_transform(int p_item, const Transform &p_transform) {
+void MeshLibrary::set_item_navmesh_transform(int p_item, const Transform3D &p_transform) {
 	ERR_FAIL_COND_MSG(!item_map.has(p_item), "Requested for nonexistent MeshLibrary item '" + itos(p_item) + "'.");
 	item_map[p_item].navmesh_transform = p_transform;
 	notify_change_to_owners();
@@ -170,6 +184,11 @@ Ref<Mesh> MeshLibrary::get_item_mesh(int p_item) const {
 	return item_map[p_item].mesh;
 }
 
+Transform3D MeshLibrary::get_item_mesh_transform(int p_item) const {
+	ERR_FAIL_COND_V_MSG(!item_map.has(p_item), Transform3D(), "Requested for nonexistent MeshLibrary item '" + itos(p_item) + "'.");
+	return item_map[p_item].mesh_transform;
+}
+
 Vector<MeshLibrary::ShapeData> MeshLibrary::get_item_shapes(int p_item) const {
 	ERR_FAIL_COND_V_MSG(!item_map.has(p_item), Vector<ShapeData>(), "Requested for nonexistent MeshLibrary item '" + itos(p_item) + "'.");
 	return item_map[p_item].shapes;
@@ -180,8 +199,8 @@ Ref<NavigationMesh> MeshLibrary::get_item_navmesh(int p_item) const {
 	return item_map[p_item].navmesh;
 }
 
-Transform MeshLibrary::get_item_navmesh_transform(int p_item) const {
-	ERR_FAIL_COND_V_MSG(!item_map.has(p_item), Transform(), "Requested for nonexistent MeshLibrary item '" + itos(p_item) + "'.");
+Transform3D MeshLibrary::get_item_navmesh_transform(int p_item) const {
+	ERR_FAIL_COND_V_MSG(!item_map.has(p_item), Transform3D(), "Requested for nonexistent MeshLibrary item '" + itos(p_item) + "'.");
 	return item_map[p_item].navmesh_transform;
 }
 
@@ -213,17 +232,17 @@ Vector<int> MeshLibrary::get_item_list() const {
 	Vector<int> ret;
 	ret.resize(item_map.size());
 	int idx = 0;
-	for (Map<int, Item>::Element *E = item_map.front(); E; E = E->next()) {
-		ret.write[idx++] = E->key();
+	for (const KeyValue<int, Item> &E : item_map) {
+		ret.write[idx++] = E.key;
 	}
 
 	return ret;
 }
 
 int MeshLibrary::find_item_by_name(const String &p_name) const {
-	for (Map<int, Item>::Element *E = item_map.front(); E; E = E->next()) {
-		if (E->get().name == p_name) {
-			return E->key();
+	for (const KeyValue<int, Item> &E : item_map) {
+		if (E.value.name == p_name) {
+			return E.key;
 		}
 	}
 	return -1;
@@ -238,12 +257,35 @@ int MeshLibrary::get_last_unused_item_id() const {
 }
 
 void MeshLibrary::_set_item_shapes(int p_item, const Array &p_shapes) {
-	ERR_FAIL_COND(p_shapes.size() & 1);
+	Array arr_shapes = p_shapes;
+	int size = p_shapes.size();
+	if (size & 1) {
+		ERR_FAIL_COND_MSG(!item_map.has(p_item), "Requested for nonexistent MeshLibrary item '" + itos(p_item) + "'.");
+		int prev_size = item_map[p_item].shapes.size() * 2;
+
+		if (prev_size < size) {
+			// Check if last element is a shape.
+			Ref<Shape3D> shape = arr_shapes[size - 1];
+			if (shape.is_null()) {
+				Ref<BoxShape3D> box_shape;
+				box_shape.instantiate();
+				arr_shapes[size - 1] = box_shape;
+			}
+
+			// Make sure the added element is a Transform3D.
+			arr_shapes.push_back(Transform3D());
+			size++;
+		} else {
+			size--;
+			arr_shapes.resize(size);
+		}
+	}
+
 	Vector<ShapeData> shapes;
-	for (int i = 0; i < p_shapes.size(); i += 2) {
+	for (int i = 0; i < size; i += 2) {
 		ShapeData sd;
-		sd.shape = p_shapes[i + 0];
-		sd.local_transform = p_shapes[i + 1];
+		sd.shape = arr_shapes[i + 0];
+		sd.local_transform = arr_shapes[i + 1];
 
 		if (sd.shape.is_valid()) {
 			shapes.push_back(sd);
@@ -271,12 +313,14 @@ void MeshLibrary::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("create_item", "id"), &MeshLibrary::create_item);
 	ClassDB::bind_method(D_METHOD("set_item_name", "id", "name"), &MeshLibrary::set_item_name);
 	ClassDB::bind_method(D_METHOD("set_item_mesh", "id", "mesh"), &MeshLibrary::set_item_mesh);
+	ClassDB::bind_method(D_METHOD("set_item_mesh_transform", "id", "mesh_transform"), &MeshLibrary::set_item_mesh_transform);
 	ClassDB::bind_method(D_METHOD("set_item_navmesh", "id", "navmesh"), &MeshLibrary::set_item_navmesh);
 	ClassDB::bind_method(D_METHOD("set_item_navmesh_transform", "id", "navmesh"), &MeshLibrary::set_item_navmesh_transform);
 	ClassDB::bind_method(D_METHOD("set_item_shapes", "id", "shapes"), &MeshLibrary::_set_item_shapes);
 	ClassDB::bind_method(D_METHOD("set_item_preview", "id", "texture"), &MeshLibrary::set_item_preview);
 	ClassDB::bind_method(D_METHOD("get_item_name", "id"), &MeshLibrary::get_item_name);
 	ClassDB::bind_method(D_METHOD("get_item_mesh", "id"), &MeshLibrary::get_item_mesh);
+	ClassDB::bind_method(D_METHOD("get_item_mesh_transform", "id"), &MeshLibrary::get_item_mesh_transform);
 	ClassDB::bind_method(D_METHOD("get_item_navmesh", "id"), &MeshLibrary::get_item_navmesh);
 	ClassDB::bind_method(D_METHOD("get_item_navmesh_transform", "id"), &MeshLibrary::get_item_navmesh_transform);
 	ClassDB::bind_method(D_METHOD("get_item_shapes", "id"), &MeshLibrary::_get_item_shapes);

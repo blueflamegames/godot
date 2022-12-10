@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -33,12 +33,11 @@
 
 #include "core/math/aabb.h"
 #include "core/math/plane.h"
-#include "core/math/transform.h"
+#include "core/math/transform_3d.h"
 #include "core/math/vector2.h"
 #include "core/math/vector3.h"
-#include "core/object/reference.h"
+#include "core/object/ref_counted.h"
 #include "core/templates/list.h"
-#include "core/templates/map.h"
 #include "core/templates/oa_hash_map.h"
 #include "core/templates/vector.h"
 #include "scene/resources/material.h"
@@ -60,14 +59,14 @@ struct CSGBrush {
 
 	// Create a brush from faces.
 	void build_from_faces(const Vector<Vector3> &p_vertices, const Vector<Vector2> &p_uvs, const Vector<bool> &p_smooth, const Vector<Ref<Material>> &p_materials, const Vector<bool> &p_invert_faces);
-	void copy_from(const CSGBrush &p_brush, const Transform &p_xform);
+	void copy_from(const CSGBrush &p_brush, const Transform3D &p_xform);
 };
 
 struct CSGBrushOperation {
 	enum Operation {
 		OPERATION_UNION,
 		OPERATION_INTERSECTION,
-		OPERATION_SUBSTRACTION,
+		OPERATION_SUBTRACTION,
 	};
 
 	void merge_brushes(Operation p_operation, const CSGBrush &p_brush_a, const CSGBrush &p_brush_b, CSGBrush &r_merged_brush, float p_vertex_snap);
@@ -130,17 +129,17 @@ struct CSGBrushOperation {
 
 		struct VertexKeyHash {
 			static _FORCE_INLINE_ uint32_t hash(const VertexKey &p_vk) {
-				uint32_t h = hash_djb2_one_32(p_vk.x);
-				h = hash_djb2_one_32(p_vk.y, h);
-				h = hash_djb2_one_32(p_vk.z, h);
+				uint32_t h = hash_murmur3_one_32(p_vk.x);
+				h = hash_murmur3_one_32(p_vk.y, h);
+				h = hash_murmur3_one_32(p_vk.z, h);
 				return h;
 			}
 		};
 
 		Vector<Vector3> points;
 		Vector<Face> faces;
-		Map<Ref<Material>, int> materials;
-		Map<Vector3, int> vertex_map;
+		HashMap<Ref<Material>, int> materials;
+		HashMap<Vector3, int> vertex_map;
 		OAHashMap<VertexKey, int, VertexKeyHash> snap_cache;
 		float vertex_snap = 0.0;
 
@@ -165,8 +164,8 @@ struct CSGBrushOperation {
 		Vector<Vertex2D> vertices;
 		Vector<Face2D> faces;
 		Plane plane;
-		Transform to_2D;
-		Transform to_3D;
+		Transform3D to_2D;
+		Transform3D to_3D;
 		float vertex_snap2 = 0.0;
 
 		inline int _get_point_idx(const Vector2 &p_point);
@@ -184,8 +183,8 @@ struct CSGBrushOperation {
 	};
 
 	struct Build2DFaceCollection {
-		Map<int, Build2DFaces> build2DFacesA;
-		Map<int, Build2DFaces> build2DFacesB;
+		HashMap<int, Build2DFaces> build2DFacesA;
+		HashMap<int, Build2DFaces> build2DFacesB;
 	};
 
 	void update_faces(const CSGBrush &p_brush_a, const int p_face_idx_a, const CSGBrush &p_brush_b, const int p_face_idx_b, Build2DFaceCollection &p_collection, float p_vertex_snap);

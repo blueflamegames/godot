@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -35,13 +35,14 @@
 #include "core/templates/safe_refcount.h"
 
 #include <stddef.h>
+#include <new>
+#include <type_traits>
 
 #ifndef PAD_ALIGN
 #define PAD_ALIGN 16 //must always be greater than this at much
 #endif
 
 class Memory {
-	Memory();
 #ifdef DEBUG_ENABLED
 	static SafeNumeric<uint64_t> mem_usage;
 	static SafeNumeric<uint64_t> max_usage;
@@ -80,7 +81,7 @@ void operator delete(void *p_mem, void *p_pointer, size_t check, const char *p_d
 
 #define memalloc(m_size) Memory::alloc_static(m_size)
 #define memrealloc(m_mem, m_size) Memory::realloc_static(m_mem, m_size)
-#define memfree(m_size) Memory::free_static(m_size)
+#define memfree(m_mem) Memory::free_static(m_mem)
 
 _ALWAYS_INLINE_ void postinitialize_handler(void *) {}
 
@@ -92,15 +93,8 @@ _ALWAYS_INLINE_ T *_post_initialize(T *p_obj) {
 
 #define memnew(m_class) _post_initialize(new ("") m_class)
 
-_ALWAYS_INLINE_ void *operator new(size_t p_size, void *p_pointer, size_t check, const char *p_description) {
-	//void *failptr=0;
-	//ERR_FAIL_COND_V( check < p_size , failptr); /** bug, or strange compiler, most likely */
-
-	return p_pointer;
-}
-
 #define memnew_allocator(m_class, m_allocator) _post_initialize(new (m_allocator::alloc) m_class)
-#define memnew_placement(m_placement, m_class) _post_initialize(new (m_placement, sizeof(m_class), "") m_class)
+#define memnew_placement(m_placement, m_class) _post_initialize(new (m_placement) m_class)
 
 _ALWAYS_INLINE_ bool predelete_handler(void *) {
 	return true;
@@ -111,7 +105,7 @@ void memdelete(T *p_class) {
 	if (!predelete_handler(p_class)) {
 		return; // doesn't want to be deleted
 	}
-	if (!__has_trivial_destructor(T)) {
+	if (!std::is_trivially_destructible<T>::value) {
 		p_class->~T();
 	}
 
@@ -123,7 +117,7 @@ void memdelete_allocator(T *p_class) {
 	if (!predelete_handler(p_class)) {
 		return; // doesn't want to be deleted
 	}
-	if (!__has_trivial_destructor(T)) {
+	if (!std::is_trivially_destructible<T>::value) {
 		p_class->~T();
 	}
 
@@ -140,7 +134,7 @@ void memdelete_allocator(T *p_class) {
 #define memnew_arr(m_class, m_count) memnew_arr_template<m_class>(m_count)
 
 template <typename T>
-T *memnew_arr_template(size_t p_elements, const char *p_descr = "") {
+T *memnew_arr_template(size_t p_elements) {
 	if (p_elements == 0) {
 		return nullptr;
 	}
@@ -153,12 +147,12 @@ T *memnew_arr_template(size_t p_elements, const char *p_descr = "") {
 	ERR_FAIL_COND_V(!mem, failptr);
 	*(mem - 1) = p_elements;
 
-	if (!__has_trivial_constructor(T)) {
+	if (!std::is_trivially_constructible<T>::value) {
 		T *elems = (T *)mem;
 
 		/* call operator new */
 		for (size_t i = 0; i < p_elements; i++) {
-			new (&elems[i], sizeof(T), p_descr) T;
+			new (&elems[i]) T;
 		}
 	}
 
@@ -180,7 +174,7 @@ template <typename T>
 void memdelete_arr(T *p_class) {
 	uint64_t *ptr = (uint64_t *)p_class;
 
-	if (!__has_trivial_destructor(T)) {
+	if (!std::is_trivially_destructible<T>::value) {
 		uint64_t elem_count = *(ptr - 1);
 
 		for (uint64_t i = 0; i < elem_count; i++) {
@@ -193,15 +187,23 @@ void memdelete_arr(T *p_class) {
 
 struct _GlobalNil {
 	int color = 1;
-	_GlobalNil *right;
-	_GlobalNil *left;
-	_GlobalNil *parent;
+	_GlobalNil *right = nullptr;
+	_GlobalNil *left = nullptr;
+	_GlobalNil *parent = nullptr;
 
 	_GlobalNil();
 };
 
 struct _GlobalNilClass {
 	static _GlobalNil _nil;
+};
+
+template <class T>
+class DefaultTypedAllocator {
+public:
+	template <class... Args>
+	_FORCE_INLINE_ T *new_allocation(const Args &&...p_args) { return memnew(T(p_args...)); }
+	_FORCE_INLINE_ void delete_allocation(T *p_allocation) { memdelete(p_allocation); }
 };
 
 #endif // MEMORY_H

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,6 +31,7 @@
 #ifndef BASE_BUTTON_H
 #define BASE_BUTTON_H
 
+#include "core/input/shortcut.h"
 #include "scene/gui/control.h"
 
 class ButtonGroup;
@@ -45,12 +46,14 @@ public:
 	};
 
 private:
-	int button_mask = MOUSE_BUTTON_MASK_LEFT;
+	MouseButton button_mask = MouseButton::MASK_LEFT;
 	bool toggle_mode = false;
 	bool shortcut_in_tooltip = true;
+	bool was_mouse_pressed = false;
 	bool keep_pressed_outside = false;
 	Ref<Shortcut> shortcut;
 	ObjectID shortcut_context;
+	bool shortcut_feedback = true;
 
 	ActionMode action_mode = ACTION_MODE_BUTTON_RELEASE;
 	struct Status {
@@ -58,6 +61,7 @@ private:
 		bool hovering = false;
 		bool press_attempt = false;
 		bool pressing_inside = false;
+		bool shortcut_press = false;
 
 		bool disabled = false;
 
@@ -75,11 +79,14 @@ protected:
 	virtual void pressed();
 	virtual void toggled(bool p_pressed);
 	static void _bind_methods();
-	virtual void _gui_input(Ref<InputEvent> p_event);
-	virtual void _unhandled_key_input(Ref<InputEvent> p_event);
+	virtual void gui_input(const Ref<InputEvent> &p_event) override;
+	virtual void shortcut_input(const Ref<InputEvent> &p_event) override;
 	void _notification(int p_what);
 
-	bool _is_focus_owner_in_shorcut_context() const;
+	bool _was_pressed_by_mouse() const;
+
+	GDVIRTUAL0(_pressed)
+	GDVIRTUAL1(_toggled, bool)
 
 public:
 	enum DrawMode {
@@ -98,7 +105,8 @@ public:
 	bool is_pressing() const; ///< return whether button is pressed (toggled in)
 	bool is_hovered() const;
 
-	void set_pressed(bool p_pressed); ///only works in toggle mode
+	void set_pressed(bool p_pressed); // Only works in toggle mode.
+	void set_pressed_no_signal(bool p_pressed);
 	void set_toggle_mode(bool p_on);
 	bool is_toggle_mode() const;
 
@@ -114,8 +122,8 @@ public:
 	void set_keep_pressed_outside(bool p_on);
 	bool is_keep_pressed_outside() const;
 
-	void set_button_mask(int p_mask);
-	int get_button_mask() const;
+	void set_button_mask(MouseButton p_mask);
+	MouseButton get_button_mask() const;
 
 	void set_shortcut(const Ref<Shortcut> &p_shortcut);
 	Ref<Shortcut> get_shortcut() const;
@@ -125,8 +133,8 @@ public:
 	void set_button_group(const Ref<ButtonGroup> &p_group);
 	Ref<ButtonGroup> get_button_group() const;
 
-	void set_shortcut_context(Node *p_node);
-	Node *get_shortcut_context() const;
+	void set_shortcut_feedback(bool p_feedback);
+	bool is_shortcut_feedback() const;
 
 	BaseButton();
 	~BaseButton();
@@ -138,7 +146,7 @@ VARIANT_ENUM_CAST(BaseButton::ActionMode)
 class ButtonGroup : public Resource {
 	GDCLASS(ButtonGroup, Resource);
 	friend class BaseButton;
-	Set<BaseButton *> buttons;
+	HashSet<BaseButton *> buttons;
 
 protected:
 	static void _bind_methods();
@@ -146,8 +154,8 @@ protected:
 public:
 	BaseButton *get_pressed_button();
 	void get_buttons(List<BaseButton *> *r_buttons);
-	Array _get_buttons();
+	TypedArray<BaseButton> _get_buttons();
 	ButtonGroup();
 };
 
-#endif
+#endif // BASE_BUTTON_H

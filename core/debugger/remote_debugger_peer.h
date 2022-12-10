@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -32,23 +32,23 @@
 #define REMOTE_DEBUGGER_PEER_H
 
 #include "core/io/stream_peer_tcp.h"
-#include "core/object/reference.h"
+#include "core/object/ref_counted.h"
 #include "core/os/mutex.h"
 #include "core/os/thread.h"
 #include "core/string/ustring.h"
 
-class RemoteDebuggerPeer : public Reference {
+class RemoteDebuggerPeer : public RefCounted {
 protected:
 	int max_queued_messages = 4096;
 
 public:
 	virtual bool is_peer_connected() = 0;
+	virtual int get_max_message_size() const = 0;
 	virtual bool has_message() = 0;
 	virtual Error put_message(const Array &p_arr) = 0;
 	virtual Array get_message() = 0;
 	virtual void close() = 0;
 	virtual void poll() = 0;
-	virtual int get_max_message_size() const = 0;
 	virtual bool can_block() const { return true; } // If blocking io is allowed on main thread (debug).
 
 	RemoteDebuggerPeer();
@@ -81,13 +81,13 @@ public:
 
 	Error connect_to_host(const String &p_host, uint16_t p_port);
 
-	void poll();
-	bool is_peer_connected();
-	bool has_message();
-	Array get_message();
-	Error put_message(const Array &p_arr);
-	int get_max_message_size() const;
-	void close();
+	bool is_peer_connected() override;
+	int get_max_message_size() const override;
+	bool has_message() override;
+	Error put_message(const Array &p_arr) override;
+	Array get_message() override;
+	void poll() override;
+	void close() override;
 
 	RemoteDebuggerPeerTCP(Ref<StreamPeerTCP> p_stream = Ref<StreamPeerTCP>());
 	~RemoteDebuggerPeerTCP();

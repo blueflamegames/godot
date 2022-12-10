@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -32,8 +32,6 @@
 #define RW_LOCK_H
 
 #include "core/error/error_list.h"
-
-#if !defined(NO_THREADS)
 
 #include <shared_mutex>
 
@@ -71,21 +69,6 @@ public:
 		return mutex.try_lock() ? OK : ERR_BUSY;
 	}
 };
-
-#else
-
-class RWLock {
-public:
-	void read_lock() const {}
-	void read_unlock() const {}
-	Error read_try_lock() const { return OK; }
-
-	void write_lock() {}
-	void write_unlock() {}
-	Error write_try_lock() { return OK; }
-};
-
-#endif
 
 class RWLockRead {
 	const RWLock &lock;

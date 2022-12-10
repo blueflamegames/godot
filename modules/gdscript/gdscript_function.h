@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -31,7 +31,7 @@
 #ifndef GDSCRIPT_FUNCTION_H
 #define GDSCRIPT_FUNCTION_H
 
-#include "core/object/reference.h"
+#include "core/object/ref_counted.h"
 #include "core/object/script_language.h"
 #include "core/os/thread.h"
 #include "core/string/string_name.h"
@@ -111,11 +111,7 @@ public:
 				}
 
 				if (!ClassDB::is_parent_class(obj->get_class_name(), native_type)) {
-					// Try with underscore prefix
-					StringName underscore_native_type = "_" + native_type;
-					if (!ClassDB::is_parent_class(obj->get_class_name(), underscore_native_type)) {
-						return false;
-					}
+					return false;
 				}
 				return true;
 			} break;
@@ -196,7 +192,7 @@ public:
 
 	GDScriptDataType() = default;
 
-	GDScriptDataType &operator=(const GDScriptDataType &p_other) {
+	void operator=(const GDScriptDataType &p_other) {
 		kind = p_other.kind;
 		has_type = p_other.has_type;
 		builtin_type = p_other.builtin_type;
@@ -207,7 +203,6 @@ public:
 		if (p_other.has_container_element_type()) {
 			set_container_element_type(p_other.get_container_element_type());
 		}
-		return *this;
 	}
 
 	GDScriptDataType(const GDScriptDataType &p_other) {
@@ -263,6 +258,8 @@ public:
 		OPCODE_CALL_SELF_BASE,
 		OPCODE_CALL_METHOD_BIND,
 		OPCODE_CALL_METHOD_BIND_RET,
+		OPCODE_CALL_BUILTIN_STATIC,
+		OPCODE_CALL_NATIVE_STATIC,
 		// ptrcall have one instruction per return type.
 		OPCODE_CALL_PTRCALL_NO_RETURN,
 		OPCODE_CALL_PTRCALL_BOOL,
@@ -276,11 +273,14 @@ public:
 		OPCODE_CALL_PTRCALL_VECTOR3,
 		OPCODE_CALL_PTRCALL_VECTOR3I,
 		OPCODE_CALL_PTRCALL_TRANSFORM2D,
+		OPCODE_CALL_PTRCALL_VECTOR4,
+		OPCODE_CALL_PTRCALL_VECTOR4I,
 		OPCODE_CALL_PTRCALL_PLANE,
-		OPCODE_CALL_PTRCALL_QUAT,
+		OPCODE_CALL_PTRCALL_QUATERNION,
 		OPCODE_CALL_PTRCALL_AABB,
 		OPCODE_CALL_PTRCALL_BASIS,
-		OPCODE_CALL_PTRCALL_TRANSFORM,
+		OPCODE_CALL_PTRCALL_TRANSFORM3D,
+		OPCODE_CALL_PTRCALL_PROJECTION,
 		OPCODE_CALL_PTRCALL_COLOR,
 		OPCODE_CALL_PTRCALL_STRING_NAME,
 		OPCODE_CALL_PTRCALL_NODE_PATH,
@@ -301,10 +301,13 @@ public:
 		OPCODE_CALL_PTRCALL_PACKED_COLOR_ARRAY,
 		OPCODE_AWAIT,
 		OPCODE_AWAIT_RESUME,
+		OPCODE_CREATE_LAMBDA,
+		OPCODE_CREATE_SELF_LAMBDA,
 		OPCODE_JUMP,
 		OPCODE_JUMP_IF,
 		OPCODE_JUMP_IF_NOT,
 		OPCODE_JUMP_TO_DEF_ARGUMENT,
+		OPCODE_JUMP_IF_SHARED,
 		OPCODE_RETURN,
 		OPCODE_RETURN_TYPED_BUILTIN,
 		OPCODE_RETURN_TYPED_ARRAY,
@@ -350,7 +353,45 @@ public:
 		OPCODE_ITERATE_PACKED_VECTOR3_ARRAY,
 		OPCODE_ITERATE_PACKED_COLOR_ARRAY,
 		OPCODE_ITERATE_OBJECT,
+		OPCODE_STORE_GLOBAL,
 		OPCODE_STORE_NAMED_GLOBAL,
+		OPCODE_TYPE_ADJUST_BOOL,
+		OPCODE_TYPE_ADJUST_INT,
+		OPCODE_TYPE_ADJUST_FLOAT,
+		OPCODE_TYPE_ADJUST_STRING,
+		OPCODE_TYPE_ADJUST_VECTOR2,
+		OPCODE_TYPE_ADJUST_VECTOR2I,
+		OPCODE_TYPE_ADJUST_RECT2,
+		OPCODE_TYPE_ADJUST_RECT2I,
+		OPCODE_TYPE_ADJUST_VECTOR3,
+		OPCODE_TYPE_ADJUST_VECTOR3I,
+		OPCODE_TYPE_ADJUST_TRANSFORM2D,
+		OPCODE_TYPE_ADJUST_VECTOR4,
+		OPCODE_TYPE_ADJUST_VECTOR4I,
+		OPCODE_TYPE_ADJUST_PLANE,
+		OPCODE_TYPE_ADJUST_QUATERNION,
+		OPCODE_TYPE_ADJUST_AABB,
+		OPCODE_TYPE_ADJUST_BASIS,
+		OPCODE_TYPE_ADJUST_TRANSFORM3D,
+		OPCODE_TYPE_ADJUST_PROJECTION,
+		OPCODE_TYPE_ADJUST_COLOR,
+		OPCODE_TYPE_ADJUST_STRING_NAME,
+		OPCODE_TYPE_ADJUST_NODE_PATH,
+		OPCODE_TYPE_ADJUST_RID,
+		OPCODE_TYPE_ADJUST_OBJECT,
+		OPCODE_TYPE_ADJUST_CALLABLE,
+		OPCODE_TYPE_ADJUST_SIGNAL,
+		OPCODE_TYPE_ADJUST_DICTIONARY,
+		OPCODE_TYPE_ADJUST_ARRAY,
+		OPCODE_TYPE_ADJUST_PACKED_BYTE_ARRAY,
+		OPCODE_TYPE_ADJUST_PACKED_INT32_ARRAY,
+		OPCODE_TYPE_ADJUST_PACKED_INT64_ARRAY,
+		OPCODE_TYPE_ADJUST_PACKED_FLOAT32_ARRAY,
+		OPCODE_TYPE_ADJUST_PACKED_FLOAT64_ARRAY,
+		OPCODE_TYPE_ADJUST_PACKED_STRING_ARRAY,
+		OPCODE_TYPE_ADJUST_PACKED_VECTOR2_ARRAY,
+		OPCODE_TYPE_ADJUST_PACKED_VECTOR3_ARRAY,
+		OPCODE_TYPE_ADJUST_PACKED_COLOR_ARRAY,
 		OPCODE_ASSERT,
 		OPCODE_BREAKPOINT,
 		OPCODE_LINE,
@@ -389,6 +430,7 @@ public:
 	};
 
 private:
+	friend class GDScript;
 	friend class GDScriptCompiler;
 	friend class GDScriptByteCodeGenerator;
 
@@ -425,6 +467,8 @@ private:
 	const GDScriptUtilityFunctions::FunctionPtr *_gds_utilities_ptr = nullptr;
 	int _methods_count = 0;
 	MethodBind **_methods_ptr = nullptr;
+	int _lambdas_count = 0;
+	GDScriptFunction **_lambdas_ptr = nullptr;
 	const int *_code_ptr = nullptr;
 	int _code_size = 0;
 	int _argument_count = 0;
@@ -434,7 +478,7 @@ private:
 
 	int _initial_line = 0;
 	bool _static = false;
-	MultiplayerAPI::RPCMode rpc_mode = MultiplayerAPI::RPC_MODE_DISABLED;
+	Variant rpc_config;
 
 	GDScript *_script = nullptr;
 
@@ -454,9 +498,12 @@ private:
 	Vector<Variant::ValidatedUtilityFunction> utilities;
 	Vector<GDScriptUtilityFunctions::FunctionPtr> gds_utilities;
 	Vector<MethodBind *> methods;
+	Vector<GDScriptFunction *> lambdas;
 	Vector<int> code;
 	Vector<GDScriptDataType> argument_types;
 	GDScriptDataType return_type;
+
+	HashMap<int, Variant::Type> temporary_slots;
 
 #ifdef TOOLS_ENABLED
 	Vector<StringName> arg_names;
@@ -464,6 +511,8 @@ private:
 #endif
 
 	List<StackDebug> stack_debug;
+
+	Variant _get_default_variant_for_data_type(const GDScriptDataType &p_data_type);
 
 	_FORCE_INLINE_ Variant *_get_variant(int p_address, GDScriptInstance *p_instance, Variant *p_stack, String &r_error) const;
 	_FORCE_INLINE_ String _get_call_error(const Callable::CallError &p_err, const String &p_where, const Variant **argptrs) const;
@@ -551,13 +600,13 @@ public:
 	void disassemble(const Vector<String> &p_code_lines) const;
 #endif
 
-	_FORCE_INLINE_ MultiplayerAPI::RPCMode get_rpc_mode() const { return rpc_mode; }
+	_FORCE_INLINE_ const Variant get_rpc_config() const { return rpc_config; }
 	GDScriptFunction();
 	~GDScriptFunction();
 };
 
-class GDScriptFunctionState : public Reference {
-	GDCLASS(GDScriptFunctionState, Reference);
+class GDScriptFunctionState : public RefCounted {
+	GDCLASS(GDScriptFunctionState, RefCounted);
 	friend class GDScriptFunction;
 	GDScriptFunction *function = nullptr;
 	GDScriptFunction::CallState state;

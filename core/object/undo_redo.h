@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -32,7 +32,7 @@
 #define UNDO_REDO_H
 
 #include "core/object/class_db.h"
-#include "core/object/reference.h"
+#include "core/object/ref_counted.h"
 
 class UndoRedo : public Object {
 	GDCLASS(UndoRedo, Object);
@@ -46,10 +46,8 @@ public:
 	};
 
 	typedef void (*CommitNotifyCallback)(void *p_ud, const String &p_name);
-	Variant _add_do_method(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
-	Variant _add_undo_method(const Variant **p_args, int p_argcount, Callable::CallError &r_error);
 
-	typedef void (*MethodNotifyCallback)(void *p_ud, Object *p_base, const StringName &p_name, VARIANT_ARG_DECLARE);
+	typedef void (*MethodNotifyCallback)(void *p_ud, Object *p_base, const StringName &p_name, const Variant **p_args, int p_argcount);
 	typedef void (*PropertyNotifyCallback)(void *p_ud, Object *p_base, const StringName &p_property, const Variant &p_value);
 
 private:
@@ -58,13 +56,16 @@ private:
 			TYPE_METHOD,
 			TYPE_PROPERTY,
 			TYPE_REFERENCE
-		};
+		} type;
 
-		Type type;
-		Ref<Reference> ref;
+		bool force_keep_in_merge_ends;
+		Ref<RefCounted> ref;
 		ObjectID object;
 		StringName name;
-		Variant args[VARIANT_ARG_MAX];
+		Callable callable;
+		Variant value;
+
+		void delete_reference();
 	};
 
 	struct Action {
@@ -76,6 +77,7 @@ private:
 
 	Vector<Action> actions;
 	int current_action = -1;
+	bool force_keep_in_merge_ends = false;
 	int action_level = 0;
 	MergeMode merge_mode = MERGE_DISABLE;
 	bool merging = false;
@@ -88,7 +90,7 @@ private:
 
 	CommitNotifyCallback callback = nullptr;
 	void *callback_ud = nullptr;
-	void *method_callbck_ud = nullptr;
+	void *method_callback_ud = nullptr;
 	void *prop_callback_ud = nullptr;
 
 	MethodNotifyCallback method_callback = nullptr;
@@ -102,12 +104,15 @@ protected:
 public:
 	void create_action(const String &p_name = "", MergeMode p_mode = MERGE_DISABLE);
 
-	void add_do_method(Object *p_object, const StringName &p_method, VARIANT_ARG_LIST);
-	void add_undo_method(Object *p_object, const StringName &p_method, VARIANT_ARG_LIST);
+	void add_do_method(const Callable &p_callable);
+	void add_undo_method(const Callable &p_callable);
 	void add_do_property(Object *p_object, const StringName &p_property, const Variant &p_value);
 	void add_undo_property(Object *p_object, const StringName &p_property, const Variant &p_value);
 	void add_do_reference(Object *p_object);
 	void add_undo_reference(Object *p_object);
+
+	void start_force_keep_in_merge_ends();
+	void end_force_keep_in_merge_ends();
 
 	bool is_committing_action() const;
 	void commit_action(bool p_execute = true);
@@ -115,14 +120,15 @@ public:
 	bool redo();
 	bool undo();
 	String get_current_action_name() const;
+	int get_action_level() const;
 
 	int get_history_count();
 	int get_current_action();
 	String get_action_name(int p_id);
 	void clear_history(bool p_increase_version = true);
 
-	bool has_undo();
-	bool has_redo();
+	bool has_undo() const;
+	bool has_redo() const;
 
 	uint64_t get_version() const;
 

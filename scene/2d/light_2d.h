@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -73,11 +73,13 @@ private:
 
 	void _update_light_visibility();
 
+	virtual void owner_changed_notify() override;
+
 protected:
 	_FORCE_INLINE_ RID _get_light() const { return canvas_light; }
 	void _notification(int p_what);
 	static void _bind_methods();
-	void _validate_property(PropertyInfo &property) const override;
+	void _validate_property(PropertyInfo &p_property) const;
 
 public:
 	void set_enabled(bool p_enabled);
@@ -169,7 +171,7 @@ public:
 	void set_texture_scale(real_t p_scale);
 	real_t get_texture_scale() const;
 
-	String get_configuration_warning() const override;
+	PackedStringArray get_configuration_warnings() const override;
 
 	PointLight2D();
 };

@@ -5,8 +5,8 @@
 /*                           GODOT ENGINE                                */
 /*                      https://godotengine.org                          */
 /*************************************************************************/
-/* Copyright (c) 2007-2021 Juan Linietsky, Ariel Manzur.                 */
-/* Copyright (c) 2014-2021 Godot Engine contributors (cf. AUTHORS.md).   */
+/* Copyright (c) 2007-2022 Juan Linietsky, Ariel Manzur.                 */
+/* Copyright (c) 2014-2022 Godot Engine contributors (cf. AUTHORS.md).   */
 /*                                                                       */
 /* Permission is hereby granted, free of charge, to any person obtaining */
 /* a copy of this software and associated documentation files (the       */
@@ -28,8 +28,8 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
 /*************************************************************************/
 
-#ifndef CPU_PARTICLES_EDITOR_PLUGIN_H
-#define CPU_PARTICLES_EDITOR_PLUGIN_H
+#ifndef CPU_PARTICLES_3D_EDITOR_PLUGIN_H
+#define CPU_PARTICLES_3D_EDITOR_PLUGIN_H
 
 #include "editor/plugins/gpu_particles_3d_editor_plugin.h"
 #include "scene/3d/cpu_particles_3d.h"
@@ -44,7 +44,7 @@ class CPUParticles3DEditor : public GPUParticles3DEditorBase {
 
 	};
 
-	CPUParticles3D *node;
+	CPUParticles3D *node = nullptr;
 
 	void _menu_option(int);
 
@@ -65,8 +65,7 @@ public:
 class CPUParticles3DEditorPlugin : public EditorPlugin {
 	GDCLASS(CPUParticles3DEditorPlugin, EditorPlugin);
 
-	CPUParticles3DEditor *particles_editor;
-	EditorNode *editor;
+	CPUParticles3DEditor *particles_editor = nullptr;
 
 public:
 	virtual String get_name() const override { return "CPUParticles3D"; }
@@ -75,8 +74,8 @@ public:
 	virtual bool handles(Object *p_object) const override;
 	virtual void make_visible(bool p_visible) override;
 
-	CPUParticles3DEditorPlugin(EditorNode *p_node);
+	CPUParticles3DEditorPlugin();
 	~CPUParticles3DEditorPlugin();
 };
 
-#endif // CPU_PARTICLES_EDITOR_PLUGIN_H
+#endif // CPU_PARTICLES_3D_EDITOR_PLUGIN_H
